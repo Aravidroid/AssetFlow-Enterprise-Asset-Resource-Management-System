@@ -5,24 +5,26 @@ import datetime
 
 class AssetFlowAPI(http.Controller):
 
-    # Seed data generator helper
+    # Seed data generator helper with self-healing deduplication
     def _ensure_seed_assets(self, AssetModel):
-        if AssetModel.search_count([]) > 0:
-            return
+        # Seed standard employees if the HR module is installed
+        sarah = None
+        aravind = None
+        emma = None
         
-        # Seed standard employees
-        Employee = request.env['hr.employee'].sudo()
-        sarah = Employee.search([('name', '=', 'Sarah Jenkins')], limit=1)
-        if not sarah:
-            sarah = Employee.create({'name': 'Sarah Jenkins'})
-        
-        aravind = Employee.search([('name', '=', 'Aravind')], limit=1)
-        if not aravind:
-            aravind = Employee.create({'name': 'Aravind'})
+        if 'hr.employee' in request.env:
+            Employee = request.env['hr.employee'].sudo()
+            sarah = Employee.search([('name', '=', 'Sarah Jenkins')], limit=1)
+            if not sarah:
+                sarah = Employee.create({'name': 'Sarah Jenkins'})
             
-        emma = Employee.search([('name', '=', 'Emma Watson')], limit=1)
-        if not emma:
-            emma = Employee.create({'name': 'Emma Watson'})
+            aravind = Employee.search([('name', '=', 'Aravind')], limit=1)
+            if not aravind:
+                aravind = Employee.create({'name': 'Aravind'})
+                
+            emma = Employee.search([('name', '=', 'Emma Watson')], limit=1)
+            if not emma:
+                emma = Employee.create({'name': 'Emma Watson'})
 
         # Default seeds mapping to initial assets structure
         seeds = [
@@ -35,7 +37,7 @@ class AssetFlowAPI(http.Controller):
                 'condition_rating': 'good',
                 'maintenance_count': 2,
                 'state': 'allocated',
-                'employee_id': sarah.id
+                'employee_id': sarah.id if sarah else False
             },
             {
                 'name': 'Dell UltraSharp 32" 4K Monitor',
@@ -56,7 +58,7 @@ class AssetFlowAPI(http.Controller):
                 'condition_rating': 'good',
                 'maintenance_count': 5,
                 'state': 'allocated',
-                'employee_id': aravind.id
+                'employee_id': aravind.id if aravind else False
             },
             {
                 'name': 'Cisco Router',
@@ -97,12 +99,24 @@ class AssetFlowAPI(http.Controller):
                 'condition_rating': 'good',
                 'maintenance_count': 4,
                 'state': 'allocated',
-                'employee_id': emma.id
+                'employee_id': emma.id if emma else False
             }
         ]
 
+        # 1. Clean up duplicate records in the database first
+        all_records = AssetModel.search([])
+        seen_serials = set()
+        for r in all_records:
+            if r.serial_no in seen_serials:
+                r.unlink()
+            else:
+                seen_serials.add(r.serial_no)
+
+        # 2. Check individual serial tags before creating to avoid seeding duplicates
         for s in seeds:
-            AssetModel.create(s)
+            existing = AssetModel.search([('serial_no', '=', s['serial_no'])], limit=1)
+            if not existing:
+                AssetModel.create(s)
 
     def _compute_asset_intelligence(self, asset):
         # 1. Age Calculation in Years
@@ -291,15 +305,18 @@ class AssetFlowAPI(http.Controller):
     @http.route('/api/assetflow/allocate', type='json', auth='none', methods=['POST'])
     def allocate_asset(self, id, user):
         Asset = request.env['assetflow.asset'].sudo()
-        Employee = request.env['hr.employee'].sudo()
         record = Asset.search([('serial_no', '=', id)], limit=1)
         if record:
-            emp = Employee.search([('name', '=', user)], limit=1)
-            if not emp and user:
-                emp = Employee.create({'name': user})
+            emp_id = False
+            if 'hr.employee' in request.env:
+                Employee = request.env['hr.employee'].sudo()
+                emp = Employee.search([('name', '=', user)], limit=1)
+                if not emp and user:
+                    emp = Employee.create({'name': user})
+                emp_id = emp.id if emp else False
             record.write({
                 'state': 'allocated',
-                'employee_id': emp.id if emp else False
+                'employee_id': emp_id
             })
             return self._compute_asset_intelligence(record)
         return {'error': 'Asset not found'}
@@ -383,15 +400,18 @@ class AssetFlowAPI(http.Controller):
     @http.route('/api/assetflow/transfer', type='json', auth='none', methods=['POST'])
     def transfer_asset(self, id, target_user):
         Asset = request.env['assetflow.asset'].sudo()
-        Employee = request.env['hr.employee'].sudo()
         record = Asset.search([('serial_no', '=', id)], limit=1)
         if record:
-            emp = Employee.search([('name', '=', target_user)], limit=1)
-            if not emp and target_user:
-                emp = Employee.create({'name': target_user})
+            emp_id = False
+            if 'hr.employee' in request.env:
+                Employee = request.env['hr.employee'].sudo()
+                emp = Employee.search([('name', '=', target_user)], limit=1)
+                if not emp and target_user:
+                    emp = Employee.create({'name': target_user})
+                emp_id = emp.id if emp else False
             record.write({
                 'state': 'allocated',
-                'employee_id': emp.id if emp else False
+                'employee_id': emp_id
             })
             return self._compute_asset_intelligence(record)
         return {'error': 'Asset not found'}
