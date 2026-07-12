@@ -289,6 +289,43 @@ class AssetFlowAPI(http.Controller):
         risk_num = (critical * 5) + (idle * 2) + (warranty * 2) + (maint_overdue * 3)
         risk_score = round(risk_num / total, 1) if total > 0 else 0.0
 
+        # Executive Decision Center: Calculate Expected Savings and Actionable Priorities
+        decisions = []
+        for a in assets:
+            if a['status'] == 'Disposed':
+                continue
+            
+            if a['healthScore'] < 40:
+                savings_usd = a['cost'] * 0.40
+                decisions.append({
+                    'id': a['id'],
+                    'type': 'replace',
+                    'text': f"Replace {a['name']} ({a['id']})",
+                    'savings': savings_usd
+                })
+            elif a['isIdle']:
+                savings_usd = a['cost'] * 0.25
+                decisions.append({
+                    'id': a['id'],
+                    'type': 'reallocate',
+                    'text': f"Reallocate Idle {a['name']} ({a['id']})",
+                    'savings': savings_usd
+                })
+            elif a['warrantyDaysLeft'] <= 30:
+                savings_usd = a['cost'] * 0.10
+                decisions.append({
+                    'id': a['id'],
+                    'type': 'warranty',
+                    'text': f"Renew Warranty {a['name']} ({a['id']})",
+                    'savings': savings_usd
+                })
+
+        # Sort by savings descending and pick top 3
+        decisions.sort(key=lambda x: x['savings'], reverse=True)
+        top_decisions = decisions[:3]
+        total_savings_usd = sum(d['savings'] for d in top_decisions)
+        total_savings_inr_lakhs = (total_savings_usd * 85) / 100000
+
         return {
             'total_assets': total,
             'available': available,
@@ -299,7 +336,9 @@ class AssetFlowAPI(http.Controller):
             'warranty_expiring': warranty,
             'health_score': avg_health,
             'average_efficiency': avg_eff,
-            'risk_score': risk_score
+            'risk_score': risk_score,
+            'expected_savings_lakhs': round(total_savings_inr_lakhs, 2),
+            'priorities': top_decisions
         }
 
     @http.route('/api/assetflow/allocate', type='json', auth='none', methods=['POST'])

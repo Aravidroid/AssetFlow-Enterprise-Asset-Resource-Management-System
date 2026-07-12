@@ -141,6 +141,48 @@ export default function Dashboard() {
     { name: 'Critical (0-39)', count: criticalCount, fill: '#ef4444' },
   ];
 
+  // 8. Executive Decision Center: Expected Savings & Today's Priorities (React-side calculation)
+  const decisions = [];
+  assets.forEach(a => {
+    if (a.status === 'Disposed') return;
+
+    if (a.healthScore < 40) {
+      const savingsUSD = a.cost * 0.40;
+      decisions.push({
+        id: a.id,
+        type: 'replace',
+        text: `⚠ Replace ${a.name} (${a.id})`,
+        savingsUSD,
+        savingsINR: savingsUSD * 85
+      });
+    } else if (a.isIdle) {
+      const savingsUSD = a.cost * 0.25;
+      decisions.push({
+        id: a.id,
+        type: 'reallocate',
+        text: `⚠ Reallocate Idle ${a.name} (${a.id})`,
+        savingsUSD,
+        savingsINR: savingsUSD * 85
+      });
+    } else if (a.warrantyDaysLeft <= 30) {
+      const savingsUSD = a.cost * 0.10;
+      decisions.push({
+        id: a.id,
+        type: 'warranty',
+        text: `🛡️ Renew Warranty ${a.name} (${a.id})`,
+        savingsUSD,
+        savingsINR: savingsUSD * 85
+      });
+    }
+  });
+
+  // Sort by savings descending and pick top 3 priorities
+  decisions.sort((a, b) => b.savingsUSD - a.savingsUSD);
+  const priorityDecisions = decisions.slice(0, 3);
+  const totalSavingsUSD = priorityDecisions.reduce((sum, d) => sum + d.savingsUSD, 0);
+  const totalSavingsLakhs = (totalSavingsUSD * 85) / 100000;
+  const formattedSavings = totalSavingsLakhs.toFixed(2);
+
   // 7. Rule-Based Smart Alerts calculation
   const alerts = [];
   assets.forEach(asset => {
@@ -548,19 +590,19 @@ export default function Dashboard() {
         </Link>
       </div>
 
-      {/* TOP SECTION: Enterprise Health & Enterprise Asset Risk Side-by-Side */}
+      {/* TOP SECTION: Enterprise Health, Enterprise Asset Risk, and Executive Decision Center */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
         
         {/* Enterprise Health Index Widget */}
-        <div className="glass-card rounded-2xl p-6 lg:col-span-5 flex flex-col justify-between relative overflow-hidden">
+        <div className="glass-card rounded-2xl p-6 lg:col-span-4 flex flex-col justify-between relative overflow-hidden">
           <div className="absolute top-0 right-0 w-32 h-32 bg-violet-600/5 rounded-full blur-3xl"></div>
           <div>
             <h3 className="text-sm font-bold text-slate-400 uppercase tracking-widest">Enterprise Health Index</h3>
             <p className="text-[10px] text-slate-500 mt-0.5">Average overall health evaluation score.</p>
           </div>
 
-          <div className="flex items-center gap-6 py-6">
-            <div className="relative w-28 h-28 flex items-center justify-center shrink-0">
+          <div className="flex items-center gap-4 py-4">
+            <div className="relative w-20 h-20 flex items-center justify-center shrink-0">
               <svg className="w-full h-full transform -rotate-90" viewBox="0 0 100 100">
                 <circle cx="50" cy="50" r="40" className="stroke-slate-800" strokeWidth="8" fill="transparent" />
                 <circle 
@@ -575,23 +617,23 @@ export default function Dashboard() {
                 />
               </svg>
               <div className="absolute text-center">
-                <span className="text-3xl font-extrabold text-white tracking-tight">{enterpriseHealthIndex}%</span>
+                <span className="text-2xl font-extrabold text-white tracking-tight">{enterpriseHealthIndex}%</span>
               </div>
             </div>
             <div>
-              <span className="text-slate-400 text-xs font-semibold">Asset Fleet Rating:</span>
-              <h4 className="text-lg font-bold text-white mt-0.5">
+              <span className="text-slate-450 text-[10px] font-bold uppercase tracking-wider">Fleet Rating:</span>
+              <h4 className="text-sm font-bold text-white mt-0.5">
                 {enterpriseHealthIndex >= 85 ? '🟢 Excellent' : enterpriseHealthIndex >= 70 ? '🟡 Satisfactory' : '🔴 At Risk'}
               </h4>
-              <p className="text-xs text-slate-500 mt-2 leading-relaxed">
-                Determined by combining ages, condition grades, active warranties, and maintenance counts.
+              <p className="text-[11px] text-slate-500 mt-1 leading-normal">
+                Based on active warranties, age, conditions & logs.
               </p>
             </div>
           </div>
         </div>
 
         {/* Enterprise Asset Risk Widget */}
-        <div className="glass-card rounded-2xl p-6 lg:col-span-7 flex flex-col justify-between relative overflow-hidden">
+        <div className="glass-card rounded-2xl p-6 lg:col-span-4 flex flex-col justify-between relative overflow-hidden">
           <div className="absolute top-0 right-0 w-32 h-32 bg-amber-500/5 rounded-full blur-3xl"></div>
           <div>
             <div className="flex justify-between items-start">
@@ -599,44 +641,74 @@ export default function Dashboard() {
                 <h3 className="text-sm font-bold text-slate-400 uppercase tracking-widest">Enterprise Asset Risk</h3>
                 <p className="text-[10px] text-slate-500 mt-0.5">Rule-Based risk rating logic.</p>
               </div>
-              <span className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold ${riskBgColor} ${riskColorText}`}>
-                <span className={`w-1.5 h-1.5 rounded-full ${riskDotColor}`}></span>
-                {riskLevel} ({enterpriseRiskScore})
+              <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold ${riskBgColor} ${riskColorText}`}>
+                {riskLevel}
               </span>
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mt-5">
-              {/* Contributing factors lists */}
-              <div>
-                <span className="text-[10px] text-slate-500 uppercase tracking-wider font-bold block mb-2">Contributing Factors</span>
-                <ul className="space-y-1.5 text-xs text-slate-300">
-                  <li className="flex items-center gap-2">
-                    <span className="w-1 h-1 rounded-full bg-slate-500"></span>
-                    <strong className="text-white">{criticalCount}</strong> Critical Assets
-                  </li>
-                  <li className="flex items-center gap-2">
-                    <span className="w-1 h-1 rounded-full bg-slate-500"></span>
-                    <strong className="text-white">{idleCount}</strong> Idle Assets
-                  </li>
-                  <li className="flex items-center gap-2">
-                    <span className="w-1 h-1 rounded-full bg-slate-500"></span>
-                    <strong className="text-white">{maintenanceDueCount}</strong> Maintenance Due
-                  </li>
-                  <li className="flex items-center gap-2">
-                    <span className="w-1 h-1 rounded-full bg-slate-500"></span>
-                    <strong className="text-white">{warrantyExpiringCount}</strong> Warranty Expiring
-                  </li>
-                </ul>
-              </div>
-              
-              {/* Recommendations box */}
-              <div className="bg-slate-900/60 p-3.5 rounded-xl border border-slate-850 flex flex-col justify-center">
-                <span className="text-[9px] text-violet-400 uppercase tracking-wider font-extrabold block">Recommended Action</span>
-                <p className="text-xs text-slate-400 mt-1.5 leading-relaxed font-medium">
-                  {riskRecommendation}
-                </p>
+            <div className="space-y-3 mt-4">
+              <div className="grid grid-cols-2 gap-2 text-[11px] text-slate-350 bg-slate-950/20 p-2.5 rounded-xl border border-slate-900">
+                <div>
+                  <span className="text-[9px] text-slate-500 block">Critical:</span>
+                  <strong className="text-white">{criticalCount}</strong> Assets
+                </div>
+                <div>
+                  <span className="text-[9px] text-slate-500 block">Idle:</span>
+                  <strong className="text-white">{idleCount}</strong> Assets
+                </div>
+                <div>
+                  <span className="text-[9px] text-slate-500 block">Maint Due:</span>
+                  <strong className="text-white">{maintenanceDueCount}</strong> Assets
+                </div>
+                <div>
+                  <span className="text-[9px] text-slate-500 block">Risk Score:</span>
+                  <strong className="text-amber-400 font-bold">{enterpriseRiskScore}/10</strong>
+                </div>
               </div>
             </div>
+          </div>
+        </div>
+
+        {/* Executive Decision Center (New Widget) */}
+        <div className="glass-card rounded-2xl p-6 lg:col-span-4 flex flex-col justify-between relative overflow-hidden border border-violet-500/10">
+          <div className="absolute top-0 right-0 w-32 h-32 bg-emerald-500/5 rounded-full blur-3xl"></div>
+          <div>
+            <div className="flex justify-between items-start">
+              <div>
+                <h3 className="text-sm font-bold text-slate-400 uppercase tracking-widest">Decision Center</h3>
+                <p className="text-[10px] text-slate-500 mt-0.5">Optimum financial optimization logic.</p>
+              </div>
+              <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10px] font-extrabold uppercase tracking-wider bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 animate-pulse">
+                Smart ROI
+              </span>
+            </div>
+
+            <div className="mt-3.5 space-y-2">
+              <span className="text-[9px] text-slate-500 uppercase tracking-wider font-bold block">Today's Priorities</span>
+              {priorityDecisions.length > 0 ? (
+                <div className="space-y-1.5">
+                  {priorityDecisions.map((d, index) => (
+                    <div key={index} className="flex items-center justify-between text-[11px] bg-slate-950/40 px-3 py-1.5 rounded-lg border border-slate-900/60 text-slate-300">
+                      <span className="truncate max-w-[150px] font-medium">{d.text}</span>
+                      <span className="text-emerald-400 font-mono font-bold font-semibold shrink-0">
+                        +₹{(d.savingsINR / 1000).toFixed(0)}K
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="text-slate-500 text-[11px] italic py-2 text-center border border-dashed border-slate-800 rounded-lg">
+                  No priority actions required.
+                </div>
+              )}
+            </div>
+          </div>
+
+          <div className="border-t border-slate-900 pt-3 mt-3 flex items-center justify-between">
+            <span className="text-[10px] text-slate-500 uppercase tracking-wider font-bold">Expected Savings</span>
+            <span className="text-lg font-extrabold text-emerald-400 tracking-tight">
+              ₹{formattedSavings} Lakhs
+            </span>
           </div>
         </div>
 
