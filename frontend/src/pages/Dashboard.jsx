@@ -61,8 +61,33 @@ export default function Dashboard({ userRole }) {
   // Audit Results State
   const [auditReport, setAuditReport] = useState(null);
 
+  const [transfers, setTransfers] = useState([]);
+  const [bookingsCount, setBookingsCount] = useState(0);
+
   const loadAssets = () => {
     mockDb.getAssetsAsync().then(res => setAssets(res));
+    mockDb.getTransfersAsync().then(res => setTransfers(res));
+    mockDb.getBookingsAsync().then(res => setBookingsCount(res.length));
+  };
+
+  const handleQuickApprove = async (transferId) => {
+    try {
+      setTransfers(prev => prev.map(t => t.id === transferId ? { ...t, state: 'approved' } : t));
+      await mockDb.approveTransferAsync(transferId);
+      loadAssets();
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  const handleQuickReject = async (transferId) => {
+    try {
+      setTransfers(prev => prev.map(t => t.id === transferId ? { ...t, state: 'rejected' } : t));
+      await mockDb.rejectTransferAsync(transferId);
+      loadAssets();
+    } catch (err) {
+      console.error(err);
+    }
   };
 
   useEffect(() => {
@@ -594,17 +619,34 @@ export default function Dashboard({ userRole }) {
 
   const generateRecommendations = () => {
     const list = [];
+
+    // 0. Pending Transfers -> Approve Transfer (High)
+    transfers.filter(t => t.state === 'requested').forEach(t => {
+      list.push({
+        id: t.id,
+        assetId: t.assetId,
+        assetName: t.assetName,
+        priority: 'High',
+        title: `Approve Transfer`,
+        description: `Custodian transfer requested by ${t.requestedOwner} from ${t.currentOwner}.`,
+        actionLabel: 'Approve',
+        type: 'transfer',
+        color: 'violet'
+      });
+    });
     
     assets.forEach(asset => {
       // 1. Health Score < 40 -> Replace Asset (Critical)
       if (asset.healthScore < 40) {
         list.push({
           id: asset.id,
+          assetId: asset.id,
           assetName: asset.name,
           priority: 'Critical',
-          title: `Replace Critical Asset`,
-          description: `Health score is at ${asset.healthScore}%. Immediate replacement recommended to prevent operational failure.`,
-          actionLabel: 'Replace Asset',
+          title: `Replace Asset`,
+          description: `Health score is at ${asset.healthScore}%. Decommission is recommended.`,
+          actionLabel: 'Replace',
+          type: 'replace',
           color: 'red'
         });
       }
@@ -613,11 +655,13 @@ export default function Dashboard({ userRole }) {
       else if (asset.healthScore >= 40 && asset.healthScore <= 60) {
         list.push({
           id: asset.id,
+          assetId: asset.id,
           assetName: asset.name,
           priority: 'High',
           title: `Schedule Maintenance`,
-          description: `Asset health is deteriorating (${asset.healthScore}%). Log a preventative maintenance request.`,
-          actionLabel: 'Schedule Maint',
+          description: `Asset health is deteriorating (${asset.healthScore}%). Log a workshop request.`,
+          actionLabel: 'Schedule',
+          type: 'schedule',
           color: 'orange'
         });
       }
@@ -626,11 +670,13 @@ export default function Dashboard({ userRole }) {
       if (asset.isIdle) {
         list.push({
           id: asset.id,
+          assetId: asset.id,
           assetName: asset.name,
           priority: 'Medium',
-          title: `Reallocate Idle Asset`,
-          description: `Asset has been idle for more than 30 days. Reassign to another department to save costs.`,
-          actionLabel: 'Reallocate Asset',
+          title: `Reallocate Asset`,
+          description: `Asset has been idle for more than 30 days. Reassign to another user.`,
+          actionLabel: 'Reallocate',
+          type: 'reallocate',
           color: 'yellow'
         });
       }
@@ -639,37 +685,28 @@ export default function Dashboard({ userRole }) {
       if (asset.warrantyDaysLeft > 0 && asset.warrantyDaysLeft <= 30) {
         list.push({
           id: asset.id,
+          assetId: asset.id,
           assetName: asset.name,
           priority: 'Medium',
-          title: `Renew Equipment Warranty`,
-          description: `Warranty coverage expires in ${asset.warrantyDaysLeft} days. Renew contract with vendor.`,
-          actionLabel: 'Renew Warranty',
+          title: `Renew Warranty`,
+          description: `Warranty coverage expires in ${asset.warrantyDaysLeft} days. Renew contract.`,
+          actionLabel: 'Renew',
+          type: 'renew',
           color: 'yellow'
         });
       }
       
-      // 5. Overdue Allocation -> Collect Asset (Medium)
+      // 5. Overdue Return -> Collect Asset (Low)
       if (asset.status === 'Allocated' && asset.age > 1.5) {
         list.push({
           id: asset.id,
-          assetName: asset.name,
-          priority: 'Medium',
-          title: `Collect Overdue Asset`,
-          description: `Allocation has exceeded recommended retention limits. Re-verify active custodianship.`,
-          actionLabel: 'Collect Asset',
-          color: 'yellow'
-        });
-      }
-      
-      // 6. Asset under maintenance for more than 7 days -> Review Maintenance (Low)
-      if (asset.status === 'Under Maintenance' && asset.maintenanceCount > 1) {
-        list.push({
-          id: asset.id,
+          assetId: asset.id,
           assetName: asset.name,
           priority: 'Low',
-          title: `Review Maintenance Ticketing`,
-          description: `Asset has been under maintenance for more than 7 days. Check status with engineering.`,
-          actionLabel: 'Review Maint',
+          title: `Collect Asset`,
+          description: `Allocation has exceeded recommended retention limits. Re-verify custodianship.`,
+          actionLabel: 'Collect',
+          type: 'collect',
           color: 'blue'
         });
       }
@@ -980,77 +1017,155 @@ export default function Dashboard({ userRole }) {
         </div>
       </div>
 
-      {/* Smart Recommendations Assistant Panel */}
-      <div className="glass-card rounded-2xl p-6 relative overflow-hidden border border-violet-500/10">
-        <div className="absolute top-0 right-0 w-64 h-64 bg-violet-600/5 rounded-full blur-3xl"></div>
-        <div className="flex justify-between items-center mb-6">
-          <div>
-            <h3 className="text-xl font-bold text-white flex items-center gap-2">
-              <Sparkles className="text-violet-400 animate-pulse" size={20} />
-              Intelligent Decisions & Smart Actions
-            </h3>
-            <p className="text-xs text-slate-400 mt-1">Rule-based optimization suggestions for budget & compliance.</p>
+      {/* Executive Action Hub Widget (Admin & Asset Manager Only) */}
+      {(userRole === 'Admin' || userRole === 'Asset Manager') && (
+        <div className="glass-card rounded-2xl p-6 relative overflow-hidden border border-violet-500/10">
+          <div className="absolute top-0 right-0 w-80 h-80 bg-violet-600/5 rounded-full blur-3xl"></div>
+          
+          {/* Section 1: Welcome Header */}
+          <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-6 border-b border-slate-800/80 pb-6 mb-6">
+            <div>
+              <h3 className="text-xl font-extrabold text-white flex items-center gap-2">
+                <Sparkles className="text-violet-400 animate-pulse" size={22} />
+                Good Morning, {userRole === 'Admin' ? 'Administrator' : 'Asset Manager'}
+              </h3>
+              <p className="text-xs text-slate-400 mt-1">Here is your operational briefing and priority checklist for today.</p>
+            </div>
+            
+            {/* Highlights Grid */}
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 w-full md:w-auto">
+              <div className="bg-slate-950/40 border border-slate-900 px-3.5 py-2.5 rounded-xl text-center">
+                <span className="text-[9px] text-slate-500 font-bold block uppercase tracking-wider">Health Index</span>
+                <span className="text-sm font-extrabold text-white block mt-0.5">{enterpriseHealthIndex}%</span>
+              </div>
+              <div className="bg-slate-950/40 border border-slate-900 px-3.5 py-2.5 rounded-xl text-center">
+                <span className="text-[9px] text-slate-500 font-bold block uppercase tracking-wider">Expected Savings</span>
+                <span className="text-sm font-extrabold text-emerald-400 block mt-0.5">₹{formattedSavings}L</span>
+              </div>
+              <div className="bg-slate-950/40 border border-slate-900 px-3.5 py-2.5 rounded-xl text-center">
+                <span className="text-[9px] text-slate-500 font-bold block uppercase tracking-wider">At Risk</span>
+                <span className="text-sm font-extrabold text-red-400 block mt-0.5">{criticalCount + warrantyExpiringCount} Assets</span>
+              </div>
+              <div className="bg-slate-950/40 border border-slate-900 px-3.5 py-2.5 rounded-xl text-center">
+                <span className="text-[9px] text-slate-500 font-bold block uppercase tracking-wider">Pending Approvals</span>
+                <span className="text-sm font-extrabold text-violet-400 block mt-0.5">
+                  {transfers.filter(t => t.state === 'requested').length} Requests
+                </span>
+              </div>
+            </div>
           </div>
-          <span className="bg-slate-900 border border-slate-800 text-[10px] uppercase font-bold text-slate-500 px-3 py-1 rounded-xl">
-            Decision Engine Active
-          </span>
-        </div>
 
-        {recommendations.length > 0 ? (
-          <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
-            {recommendations.map(rec => {
-              let badgeColor = "bg-red-500/10 text-red-400 border-red-500/25";
-              if (rec.priority === 'High') badgeColor = "bg-orange-500/10 text-orange-400 border-orange-500/25";
-              else if (rec.priority === 'Medium') badgeColor = "bg-amber-500/10 text-amber-400 border-amber-500/25";
-              else if (rec.priority === 'Low') badgeColor = "bg-blue-500/10 text-blue-400 border-blue-500/25";
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+            {/* Section 2: Today's Priority Actions (Left Column) */}
+            <div className="lg:col-span-7 space-y-4">
+              <h4 className="text-xs font-bold text-slate-400 uppercase tracking-widest">Today's Priority Actions Checklist</h4>
+              
+              {recommendations.length > 0 ? (
+                <div className="space-y-3">
+                  {recommendations.map(rec => {
+                    let badgeColor = "bg-red-500/10 text-red-400 border-red-500/20";
+                    if (rec.priority === 'High') badgeColor = "bg-orange-500/10 text-orange-400 border-orange-500/20";
+                    else if (rec.priority === 'Medium') badgeColor = "bg-amber-500/10 text-amber-400 border-amber-500/20";
+                    else if (rec.priority === 'Low') badgeColor = "bg-blue-500/10 text-blue-400 border-blue-500/20";
 
-              // Icon mapping helper
-              const renderIcon = () => {
-                if (rec.priority === 'Critical') return <AlertTriangle className="text-red-400" size={16} />;
-                if (rec.priority === 'High') return <Wrench className="text-orange-400" size={16} />;
-                if (rec.priority === 'Medium' && rec.actionLabel === 'Reallocate Asset') return <Coffee className="text-amber-400" size={16} />;
-                if (rec.priority === 'Medium' && rec.actionLabel === 'Renew Warranty') return <ShieldAlert className="text-amber-400" size={16} />;
-                return <UserCheck className="text-blue-400" size={16} />;
-              };
-
-              return (
-                <div key={`${rec.id}-${rec.actionLabel}`} className="bg-slate-950/40 border border-slate-900 hover:border-slate-800 rounded-xl p-4.5 flex flex-col justify-between transition-all duration-300">
-                  <div className="space-y-3.5">
-                    <div className="flex justify-between items-center">
-                      <span className={`px-2 py-0.5 rounded text-[9px] font-extrabold uppercase border ${badgeColor}`}>
-                        {rec.priority}
-                      </span>
-                      <span className="text-[10px] text-slate-500 font-semibold font-mono">{rec.id}</span>
-                    </div>
-
-                    <div className="space-y-1.5">
-                      <div className="flex items-center gap-1.5">
-                        {renderIcon()}
-                        <h4 className="text-xs font-bold text-white leading-snug">{rec.title}</h4>
+                    return (
+                      <div key={`${rec.id}-${rec.actionLabel}`} className="bg-slate-950/40 border border-slate-900 hover:border-slate-850 p-4 rounded-xl flex flex-col sm:flex-row justify-between sm:items-center gap-4 transition-all duration-300">
+                        <div className="space-y-1.5 flex-1">
+                          <div className="flex items-center gap-2">
+                            <span className={`px-2 py-0.5 rounded text-[8px] font-extrabold uppercase border ${badgeColor}`}>
+                              {rec.priority}
+                            </span>
+                            <span className="text-xs font-bold text-white">{rec.title}</span>
+                            <span className="text-[10px] text-slate-500 font-mono">({rec.assetId})</span>
+                          </div>
+                          <p className="text-[11px] text-slate-400 leading-relaxed">{rec.description}</p>
+                        </div>
+                        
+                        <div className="shrink-0 flex gap-2">
+                          {rec.type === 'transfer' ? (
+                            <>
+                              <button
+                                onClick={() => handleQuickApprove(rec.id)}
+                                className="bg-emerald-600/25 border border-emerald-500/30 hover:bg-emerald-600 hover:text-white text-emerald-400 px-3 py-1.5 rounded-lg text-[10px] font-bold uppercase transition-colors cursor-pointer"
+                              >
+                                Approve
+                              </button>
+                              <button
+                                onClick={() => handleQuickReject(rec.id)}
+                                className="bg-red-600/25 border border-red-500/30 hover:bg-red-600 hover:text-white text-red-400 px-3 py-1.5 rounded-lg text-[10px] font-bold uppercase transition-colors cursor-pointer"
+                              >
+                                Reject
+                              </button>
+                            </>
+                          ) : (
+                            <Link
+                              to={`/assets/${rec.id}`}
+                              className="bg-slate-900 hover:bg-slate-850 border border-slate-800 text-slate-300 hover:text-white px-4 py-2 rounded-lg text-[10px] font-bold uppercase transition-colors flex items-center gap-1 cursor-pointer"
+                            >
+                              <span>{rec.actionLabel}</span>
+                              <ArrowRight size={10} />
+                            </Link>
+                          )}
+                        </div>
                       </div>
-                      <p className="text-[10px] text-slate-400 leading-relaxed">{rec.description}</p>
-                    </div>
-                  </div>
+                    );
+                  })}
+                </div>
+              ) : (
+                <div className="text-center py-10 border border-dashed border-slate-800 rounded-xl">
+                  <p className="text-xs text-slate-500">All assets are compliant and no transfers are pending.</p>
+                </div>
+              )}
+            </div>
 
-                  <div className="mt-4 pt-3 border-t border-slate-900/60">
-                    <Link
-                      to={`/assets/${rec.id}`}
-                      className="w-full inline-flex items-center justify-center gap-1.5 bg-slate-900 hover:bg-slate-850 border border-slate-800 hover:text-white text-slate-350 py-2 px-3 rounded-lg text-[10px] font-bold uppercase transition-colors cursor-pointer"
-                    >
-                      <span>{rec.actionLabel}</span>
-                      <ArrowRight size={10} />
-                    </Link>
+            {/* Section 3: Enterprise Summary (Right Column) */}
+            <div className="lg:col-span-5 space-y-4">
+              <h4 className="text-xs font-bold text-slate-400 uppercase tracking-widest">Enterprise Operations Summary</h4>
+              
+              <div className="bg-slate-950/20 border border-slate-900 rounded-xl p-4.5 space-y-4">
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="bg-slate-950/40 p-3 rounded-lg border border-slate-900/60">
+                    <span className="text-[9px] text-slate-500 font-bold block uppercase tracking-wider">Allocated Today</span>
+                    <span className="text-base font-extrabold text-white block mt-0.5">
+                      {assets.filter(a => a.lastAllocatedDate === CURRENT_DATE_STR).length} Assets
+                    </span>
+                  </div>
+                  <div className="bg-slate-950/40 p-3 rounded-lg border border-slate-900/60">
+                    <span className="text-[9px] text-slate-500 font-bold block uppercase tracking-wider">Maintenance Completed</span>
+                    <span className="text-base font-extrabold text-white block mt-0.5">
+                      {assets.reduce((sum, a) => sum + (a.maintenanceCount || 0), 0)} Total
+                    </span>
+                  </div>
+                  <div className="bg-slate-950/40 p-3 rounded-lg border border-slate-900/60">
+                    <span className="text-[9px] text-slate-500 font-bold block uppercase tracking-wider">Bookings Scheduled</span>
+                    <span className="text-base font-extrabold text-white block mt-0.5">
+                      {bookingsCount} Active
+                    </span>
+                  </div>
+                  <div className="bg-slate-950/40 p-3 rounded-lg border border-slate-900/60">
+                    <span className="text-[9px] text-slate-500 font-bold block uppercase tracking-wider">Overdue Returns</span>
+                    <span className="text-base font-extrabold text-amber-500 block mt-0.5">
+                      {assets.filter(a => a.status === 'Allocated' && a.age > 1.5).length} Assets
+                    </span>
                   </div>
                 </div>
-              );
-            })}
+
+                {/* Utilization change widget */}
+                <div className="flex items-center justify-between bg-slate-950/60 border border-slate-900 p-3 rounded-xl">
+                  <div>
+                    <span className="text-[9px] text-slate-500 font-bold block uppercase tracking-wider">Resource Utilization</span>
+                    <span className="text-[11px] text-slate-450 mt-0.5 block">Target: 85% optimal capacity</span>
+                  </div>
+                  <div className="flex items-center gap-1.5 text-xs text-emerald-400 font-bold bg-emerald-500/10 border border-emerald-500/20 px-2.5 py-1 rounded-lg">
+                    <TrendingUp size={12} />
+                    <span>+3.4%</span>
+                  </div>
+                </div>
+              </div>
+            </div>
           </div>
-        ) : (
-          <div className="text-center py-8 text-slate-500 text-sm">
-            ✓ All active hardware compliant. No optimization operations required.
-          </div>
-        )}
-      </div>
+        </div>
+      )}
 
       {/* Charts & Efficiency */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
