@@ -9,13 +9,14 @@ import {
   AlertTriangle, 
   ShieldAlert, 
   TrendingUp, 
-  ArrowRight,
-  ShieldCheck,
-  PlusCircle,
-  UserPlus,
-  PlayCircle,
-  X,
-  ClipboardList
+  ArrowRight, 
+  ShieldCheck, 
+  PlusCircle, 
+  UserPlus, 
+  PlayCircle, 
+  X, 
+  ClipboardList,
+  Sparkles
 } from 'lucide-react';
 import { 
   ResponsiveContainer, 
@@ -29,7 +30,7 @@ import {
   Tooltip 
 } from 'recharts';
 
-export default function Dashboard() {
+export default function Dashboard({ userRole }) {
   const [assets, setAssets] = useState([]);
   const CURRENT_DATE_STR = "2026-07-12";
 
@@ -591,6 +592,97 @@ export default function Dashboard() {
     }, 200);
   };
 
+  const generateRecommendations = () => {
+    const list = [];
+    
+    assets.forEach(asset => {
+      // 1. Health Score < 40 -> Replace Asset (Critical)
+      if (asset.healthScore < 40) {
+        list.push({
+          id: asset.id,
+          assetName: asset.name,
+          priority: 'Critical',
+          title: `Replace Critical Asset`,
+          description: `Health score is at ${asset.healthScore}%. Immediate replacement recommended to prevent operational failure.`,
+          actionLabel: 'Replace Asset',
+          color: 'red'
+        });
+      }
+      
+      // 2. Health Score 40-60 -> Schedule Maintenance (High)
+      else if (asset.healthScore >= 40 && asset.healthScore <= 60) {
+        list.push({
+          id: asset.id,
+          assetName: asset.name,
+          priority: 'High',
+          title: `Schedule Maintenance`,
+          description: `Asset health is deteriorating (${asset.healthScore}%). Log a preventative maintenance request.`,
+          actionLabel: 'Schedule Maint',
+          color: 'orange'
+        });
+      }
+      
+      // 3. Idle for more than 30 days -> Reallocate Asset (Medium)
+      if (asset.isIdle) {
+        list.push({
+          id: asset.id,
+          assetName: asset.name,
+          priority: 'Medium',
+          title: `Reallocate Idle Asset`,
+          description: `Asset has been idle for more than 30 days. Reassign to another department to save costs.`,
+          actionLabel: 'Reallocate Asset',
+          color: 'yellow'
+        });
+      }
+      
+      // 4. Warranty expires within 30 days -> Renew Warranty (Medium)
+      if (asset.warrantyDaysLeft > 0 && asset.warrantyDaysLeft <= 30) {
+        list.push({
+          id: asset.id,
+          assetName: asset.name,
+          priority: 'Medium',
+          title: `Renew Equipment Warranty`,
+          description: `Warranty coverage expires in ${asset.warrantyDaysLeft} days. Renew contract with vendor.`,
+          actionLabel: 'Renew Warranty',
+          color: 'yellow'
+        });
+      }
+      
+      // 5. Overdue Allocation -> Collect Asset (Medium)
+      if (asset.status === 'Allocated' && asset.age > 1.5) {
+        list.push({
+          id: asset.id,
+          assetName: asset.name,
+          priority: 'Medium',
+          title: `Collect Overdue Asset`,
+          description: `Allocation has exceeded recommended retention limits. Re-verify active custodianship.`,
+          actionLabel: 'Collect Asset',
+          color: 'yellow'
+        });
+      }
+      
+      // 6. Asset under maintenance for more than 7 days -> Review Maintenance (Low)
+      if (asset.status === 'Under Maintenance' && asset.maintenanceCount > 1) {
+        list.push({
+          id: asset.id,
+          assetName: asset.name,
+          priority: 'Low',
+          title: `Review Maintenance Ticketing`,
+          description: `Asset has been under maintenance for more than 7 days. Check status with engineering.`,
+          actionLabel: 'Review Maint',
+          color: 'blue'
+        });
+      }
+    });
+    
+    const rank = { 'Critical': 4, 'High': 3, 'Medium': 2, 'Low': 1 };
+    list.sort((a, b) => rank[b.priority] - rank[a.priority]);
+    
+    return list.slice(0, 5);
+  };
+  
+  const recommendations = generateRecommendations();
+
   // Get available assets for allocating dropdown
   const availableAssetsList = assets.filter(a => a.status === 'Available');
 
@@ -740,62 +832,72 @@ export default function Dashboard() {
       </div>
 
       {/* Quick Actions Panel */}
-      <div className="glass-card rounded-2xl p-5">
-        <h3 className="text-sm font-bold text-slate-400 uppercase tracking-widest mb-4">Quick Operations</h3>
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-          <button
-            onClick={() => setIsRegisterOpen(true)}
-            className="flex items-center gap-3 bg-slate-900/60 hover:bg-slate-900 border border-slate-800 hover:border-violet-500/30 p-4 rounded-xl text-left transition-all duration-300 hover:-translate-y-0.5 group cursor-pointer"
-          >
-            <div className="p-2.5 bg-violet-600/10 rounded-xl text-violet-400 border border-violet-500/20 group-hover:bg-violet-600/25">
-              <PlusCircle size={18} />
-            </div>
-            <div>
-              <span className="text-xs font-bold text-white block">Register Asset</span>
-              <span className="text-[10px] text-slate-500 block mt-0.5">Add hardware</span>
-            </div>
-          </button>
+      {['Admin', 'Asset Manager', 'Department Head', 'Employee'].includes(userRole) && (
+        <div className="glass-card rounded-2xl p-5">
+          <h3 className="text-sm font-bold text-slate-400 uppercase tracking-widest mb-4">Quick Operations</h3>
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+            {(userRole === 'Admin' || userRole === 'Asset Manager') && (
+              <button
+                onClick={() => setIsRegisterOpen(true)}
+                className="flex items-center gap-3 bg-slate-900/60 hover:bg-slate-900 border border-slate-800 hover:border-violet-500/30 p-4 rounded-xl text-left transition-all duration-300 hover:-translate-y-0.5 group cursor-pointer"
+              >
+                <div className="p-2.5 bg-violet-600/10 rounded-xl text-violet-400 border border-violet-500/20 group-hover:bg-violet-600/25">
+                  <PlusCircle size={18} />
+                </div>
+                <div>
+                  <span className="text-xs font-bold text-white block">Register Asset</span>
+                  <span className="text-[10px] text-slate-500 block mt-0.5">Add hardware</span>
+                </div>
+              </button>
+            )}
 
-          <button
-            onClick={() => setIsAllocateOpen(true)}
-            className="flex items-center gap-3 bg-slate-900/60 hover:bg-slate-900 border border-slate-800 hover:border-indigo-500/30 p-4 rounded-xl text-left transition-all duration-300 hover:-translate-y-0.5 group cursor-pointer"
-          >
-            <div className="p-2.5 bg-indigo-600/10 rounded-xl text-indigo-400 border border-indigo-500/20 group-hover:bg-indigo-600/25">
-              <UserPlus size={18} />
-            </div>
-            <div>
-              <span className="text-xs font-bold text-white block">Allocate Asset</span>
-              <span className="text-[10px] text-slate-500 block mt-0.5">Assign custodian</span>
-            </div>
-          </button>
+            {(userRole === 'Admin' || userRole === 'Asset Manager') && (
+              <button
+                onClick={() => setIsAllocateOpen(true)}
+                className="flex items-center gap-3 bg-slate-900/60 hover:bg-slate-900 border border-slate-800 hover:border-indigo-500/30 p-4 rounded-xl text-left transition-all duration-300 hover:-translate-y-0.5 group cursor-pointer"
+              >
+                <div className="p-2.5 bg-indigo-600/10 rounded-xl text-indigo-400 border border-indigo-500/20 group-hover:bg-indigo-600/25">
+                  <UserPlus size={18} />
+                </div>
+                <div>
+                  <span className="text-xs font-bold text-white block">Allocate Asset</span>
+                  <span className="text-[10px] text-slate-500 block mt-0.5">Assign custodian</span>
+                </div>
+              </button>
+            )}
 
-          <button
-            onClick={() => setIsMaintenanceOpen(true)}
-            className="flex items-center gap-3 bg-slate-900/60 hover:bg-slate-900 border border-slate-800 hover:border-orange-500/30 p-4 rounded-xl text-left transition-all duration-300 hover:-translate-y-0.5 group cursor-pointer"
-          >
-            <div className="p-2.5 bg-orange-600/10 rounded-xl text-orange-400 border border-orange-500/20 group-hover:bg-orange-600/25">
-              <Wrench size={18} />
-            </div>
-            <div>
-              <span className="text-xs font-bold text-white block">Maintenance</span>
-              <span className="text-[10px] text-slate-500 block mt-0.5">Log service request</span>
-            </div>
-          </button>
+            {(userRole === 'Admin' || userRole === 'Asset Manager' || userRole === 'Employee') && (
+              <button
+                onClick={() => setIsMaintenanceOpen(true)}
+                className="flex items-center gap-3 bg-slate-900/60 hover:bg-slate-900 border border-slate-800 hover:border-orange-500/30 p-4 rounded-xl text-left transition-all duration-300 hover:-translate-y-0.5 group cursor-pointer"
+              >
+                <div className="p-2.5 bg-orange-600/10 rounded-xl text-orange-400 border border-orange-500/20 group-hover:bg-orange-600/25">
+                  <Wrench size={18} />
+                </div>
+                <div>
+                  <span className="text-xs font-bold text-white block">Maintenance</span>
+                  <span className="text-[10px] text-slate-500 block mt-0.5">Log service request</span>
+                </div>
+              </button>
+            )}
 
-          <button
-            onClick={handleRunAudit}
-            className="flex items-center gap-3 bg-slate-900/60 hover:bg-slate-900 border border-slate-800 hover:border-emerald-500/30 p-4 rounded-xl text-left transition-all duration-300 hover:-translate-y-0.5 group cursor-pointer"
-          >
-            <div className="p-2.5 bg-emerald-600/10 rounded-xl text-emerald-400 border border-emerald-500/20 group-hover:bg-emerald-600/25">
-              <ShieldCheck size={18} />
-            </div>
-            <div>
-              <span className="text-xs font-bold text-white block">Audit System</span>
-              <span className="text-[10px] text-slate-500 block mt-0.5">Run check checks</span>
-            </div>
-          </button>
+            {(userRole === 'Admin' || userRole === 'Department Head') && (
+              <button
+                onClick={handleRunAudit}
+                className="flex items-center gap-3 bg-slate-900/60 hover:bg-slate-900 border border-slate-800 hover:border-emerald-500/30 p-4 rounded-xl text-left transition-all duration-300 hover:-translate-y-0.5 group cursor-pointer"
+              >
+                <div className="p-2.5 bg-emerald-600/10 rounded-xl text-emerald-400 border border-emerald-500/20 group-hover:bg-emerald-600/25">
+                  <ShieldCheck size={18} />
+                </div>
+                <div>
+                  <span className="text-xs font-bold text-white block">Audit System</span>
+                  <span className="text-[10px] text-slate-500 block mt-0.5">Run check checks</span>
+                </div>
+              </button>
+            )}
+          </div>
         </div>
-      </div>
+      )}
 
       {/* KPI Stats Grid */}
       <div className="grid grid-cols-2 lg:grid-cols-6 gap-4">
@@ -876,6 +978,78 @@ export default function Dashboard() {
             <p className="text-xs text-slate-500 mt-1">Expires within 30 days</p>
           </div>
         </div>
+      </div>
+
+      {/* Smart Recommendations Assistant Panel */}
+      <div className="glass-card rounded-2xl p-6 relative overflow-hidden border border-violet-500/10">
+        <div className="absolute top-0 right-0 w-64 h-64 bg-violet-600/5 rounded-full blur-3xl"></div>
+        <div className="flex justify-between items-center mb-6">
+          <div>
+            <h3 className="text-xl font-bold text-white flex items-center gap-2">
+              <Sparkles className="text-violet-400 animate-pulse" size={20} />
+              Intelligent Decisions & Smart Actions
+            </h3>
+            <p className="text-xs text-slate-400 mt-1">Rule-based optimization suggestions for budget & compliance.</p>
+          </div>
+          <span className="bg-slate-900 border border-slate-800 text-[10px] uppercase font-bold text-slate-500 px-3 py-1 rounded-xl">
+            Decision Engine Active
+          </span>
+        </div>
+
+        {recommendations.length > 0 ? (
+          <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
+            {recommendations.map(rec => {
+              let badgeColor = "bg-red-500/10 text-red-400 border-red-500/25";
+              if (rec.priority === 'High') badgeColor = "bg-orange-500/10 text-orange-400 border-orange-500/25";
+              else if (rec.priority === 'Medium') badgeColor = "bg-amber-500/10 text-amber-400 border-amber-500/25";
+              else if (rec.priority === 'Low') badgeColor = "bg-blue-500/10 text-blue-400 border-blue-500/25";
+
+              // Icon mapping helper
+              const renderIcon = () => {
+                if (rec.priority === 'Critical') return <AlertTriangle className="text-red-400" size={16} />;
+                if (rec.priority === 'High') return <Wrench className="text-orange-400" size={16} />;
+                if (rec.priority === 'Medium' && rec.actionLabel === 'Reallocate Asset') return <Coffee className="text-amber-400" size={16} />;
+                if (rec.priority === 'Medium' && rec.actionLabel === 'Renew Warranty') return <ShieldAlert className="text-amber-400" size={16} />;
+                return <UserCheck className="text-blue-400" size={16} />;
+              };
+
+              return (
+                <div key={`${rec.id}-${rec.actionLabel}`} className="bg-slate-950/40 border border-slate-900 hover:border-slate-800 rounded-xl p-4.5 flex flex-col justify-between transition-all duration-300">
+                  <div className="space-y-3.5">
+                    <div className="flex justify-between items-center">
+                      <span className={`px-2 py-0.5 rounded text-[9px] font-extrabold uppercase border ${badgeColor}`}>
+                        {rec.priority}
+                      </span>
+                      <span className="text-[10px] text-slate-500 font-semibold font-mono">{rec.id}</span>
+                    </div>
+
+                    <div className="space-y-1.5">
+                      <div className="flex items-center gap-1.5">
+                        {renderIcon()}
+                        <h4 className="text-xs font-bold text-white leading-snug">{rec.title}</h4>
+                      </div>
+                      <p className="text-[10px] text-slate-400 leading-relaxed">{rec.description}</p>
+                    </div>
+                  </div>
+
+                  <div className="mt-4 pt-3 border-t border-slate-900/60">
+                    <Link
+                      to={`/assets/${rec.id}`}
+                      className="w-full inline-flex items-center justify-center gap-1.5 bg-slate-900 hover:bg-slate-850 border border-slate-800 hover:text-white text-slate-350 py-2 px-3 rounded-lg text-[10px] font-bold uppercase transition-colors cursor-pointer"
+                    >
+                      <span>{rec.actionLabel}</span>
+                      <ArrowRight size={10} />
+                    </Link>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        ) : (
+          <div className="text-center py-8 text-slate-500 text-sm">
+            ✓ All active hardware compliant. No optimization operations required.
+          </div>
+        )}
       </div>
 
       {/* Charts & Efficiency */}

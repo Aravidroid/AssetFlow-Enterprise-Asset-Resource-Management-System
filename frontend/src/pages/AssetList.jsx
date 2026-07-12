@@ -14,7 +14,7 @@ import {
   AlertCircle
 } from 'lucide-react';
 
-export default function AssetList() {
+export default function AssetList({ userRole }) {
   const [assets, setAssets] = useState([]);
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState('All');
@@ -104,7 +104,7 @@ export default function AssetList() {
     };
 
     const previousAssets = [...assets];
-    setAssets([...assets, computedOptimistic]);
+    setAssets([computedOptimistic, ...assets]);
     setIsAddModalOpen(false);
 
     // Call background async request
@@ -237,13 +237,15 @@ export default function AssetList() {
             Browse corporate resource inventory, track details, and execute states.
           </p>
         </div>
-        <button
-          onClick={() => setIsAddModalOpen(true)}
-          className="flex items-center gap-2 bg-gradient-to-r from-violet-600 to-indigo-600 hover:from-violet-500 hover:to-indigo-500 text-white font-medium px-5 py-2.5 rounded-xl shadow-lg hover:-translate-y-0.5 transition-all duration-300 text-sm cursor-pointer"
-        >
-          <Plus size={16} />
-          Register Asset
-        </button>
+        {(userRole === 'Admin' || userRole === 'Asset Manager') && (
+          <button
+            onClick={() => setIsAddModalOpen(true)}
+            className="flex items-center gap-2 bg-gradient-to-r from-violet-600 to-indigo-600 hover:from-violet-500 hover:to-indigo-500 text-white font-medium px-5 py-2.5 rounded-xl shadow-lg hover:-translate-y-0.5 transition-all duration-300 text-sm cursor-pointer"
+          >
+            <Plus size={16} />
+            Register Asset
+          </button>
+        )}
       </div>
 
       {/* Controls Bar */}
