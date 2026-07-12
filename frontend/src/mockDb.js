@@ -14,7 +14,7 @@ const INITIAL_ASSETS = [
     warrantyYears: 3,
     cost: 3500,
     description: "High-end development laptop for software engineering staff.",
-    utilization: 95,
+    condition: "Good",
     history: [
       { date: "2024-05-10", type: "Created", note: "Asset registered in system." },
       { date: "2024-05-12", type: "Allocated", note: "Assigned to Aravind S." },
@@ -35,7 +35,7 @@ const INITIAL_ASSETS = [
     warrantyYears: 3,
     cost: 900,
     description: "4K designer monitor for editing and coding layouts.",
-    utilization: 0,
+    condition: "Excellent",
     history: [
       { date: "2023-01-15", type: "Created", note: "Asset registered in system." },
       { date: "2023-02-01", type: "Allocated", note: "Assigned to Design Lab." },
@@ -54,7 +54,7 @@ const INITIAL_ASSETS = [
     warrantyYears: 5,
     cost: 48000,
     description: "Corporate vehicle for executive business travel & sales pitches.",
-    utilization: 82,
+    condition: "Good",
     history: [
       { date: "2022-09-01", type: "Created", note: "Purchased and registered." },
       { date: "2022-09-10", type: "Allocated", note: "Assigned to Sales VP." },
@@ -72,9 +72,9 @@ const INITIAL_ASSETS = [
     lastAllocatedDate: "2025-06-05",
     currentUser: null,
     warrantyYears: 5,
-    cost: 4500,
+    cost: 4505,
     description: "Primary backbone switch router for local building network.",
-    utilization: 0,
+    condition: "Poor",
     history: [
       { date: "2020-03-12", type: "Created", note: "Network equipment added." },
       { date: "2020-03-20", type: "Allocated", note: "Installed in Server Rack 2A." },
@@ -93,7 +93,7 @@ const INITIAL_ASSETS = [
     warrantyYears: 10,
     cost: 1200,
     description: "Premium ergonomic chair supporting lumbar postures.",
-    utilization: 0,
+    condition: "Excellent",
     history: [
       { date: "2025-02-18", type: "Created", note: "Furniture inventory added." }
     ]
@@ -110,7 +110,7 @@ const INITIAL_ASSETS = [
     warrantyYears: 2,
     cost: 1400,
     description: "Apple tablet with stylus support for prototype design sketches.",
-    utilization: 0,
+    condition: "Fair",
     history: [
       { date: "2024-11-20", type: "Created", note: "Tablet added to Design inventory." },
       { date: "2024-12-01", type: "Allocated", note: "Assigned to Emma Watson." },
@@ -129,7 +129,7 @@ const INITIAL_ASSETS = [
     warrantyYears: 2,
     cost: 2200,
     description: "High-lumens laser projector for presentation room.",
-    utilization: 45,
+    condition: "Good",
     history: [
       { date: "2023-08-05", type: "Created", note: "Equipment bought and registered." },
       { date: "2023-08-15", type: "Allocated", note: "Installed in Conference Room 3B." }
@@ -175,91 +175,192 @@ export function getDaysDiff(date1, date2) {
   return Math.floor(diffTime / (1000 * 60 * 60 * 24));
 }
 
+// Sum past allocation durations dynamically
+export function calculateAllocatedDays(history, purchaseDate) {
+  const sortedHistory = [...history].sort((a, b) => new Date(a.date) - new Date(b.date));
+  let totalAllocatedDays = 0;
+  let currentAllocationStartDate = null;
+
+  sortedHistory.forEach(event => {
+    if (event.type === 'Allocated') {
+      if (!currentAllocationStartDate) {
+        currentAllocationStartDate = new Date(event.date);
+      }
+    } else if (event.type === 'Returned' || event.type === 'Maintenance' || event.type === 'Disposed') {
+      if (currentAllocationStartDate) {
+        const endDate = new Date(event.date);
+        const diffTime = Math.max(0, endDate - currentAllocationStartDate);
+        const days = diffTime / (1000 * 60 * 60 * 24);
+        totalAllocatedDays += days;
+        currentAllocationStartDate = null;
+      }
+    }
+  });
+
+  // If currently active allocation
+  if (currentAllocationStartDate) {
+    const endDate = new Date(CURRENT_DATE_STR);
+    const diffTime = Math.max(0, endDate - currentAllocationStartDate);
+    const days = diffTime / (1000 * 60 * 60 * 24);
+    totalAllocatedDays += days;
+  }
+
+  return Math.round(totalAllocatedDays);
+}
+
 // Compute intelligence modules dynamically for a raw asset
 export function computeAssetIntelligence(asset) {
   const age = calculateAge(asset.purchaseDate);
+  const condition = asset.condition || "Good";
   
-  // 1. Health Score
-  // Formula: Health = 100 - (Age * 2) - (Maintenance * 5)
-  const baseHealth = 100 - (age * 2) - (asset.maintenanceCount * 5);
-  const healthScore = Math.max(0, Math.min(100, Math.round(baseHealth)));
+  // 1. Health Score Penalties
+  // Age Penalty
+  const agePenalty = Math.round(age * 2 * 10) / 10;
   
-  // Health Status Badge Color & Maintenance Priority
-  let healthStatus = "Healthy";
-  let healthColor = "green"; // 'green' | 'yellow' | 'red'
-  let maintenancePriority = "Low";
+  // Maintenance Penalty
+  const maintenancePenalty = asset.maintenanceCount * 5;
+  
+  // Condition Penalty: Excellent = 0, Good = 5, Fair = 10, Poor = 20
+  let conditionPenalty = 0;
+  if (condition === "Good") conditionPenalty = 5;
+  else if (condition === "Fair") conditionPenalty = 10;
+  else if (condition === "Poor") conditionPenalty = 20;
 
-  if (healthScore < 30) {
-    healthStatus = "Critical";
-    healthColor = "red";
-    maintenancePriority = "Critical";
-  } else if (healthScore < 50) {
-    healthStatus = "Critical";
-    healthColor = "red";
-    maintenancePriority = "High";
-  } else if (healthScore < 70) {
-    healthStatus = "Warning";
-    healthColor = "yellow";
-    maintenancePriority = "Medium";
-  } else {
-    healthStatus = "Healthy";
-    healthColor = "green";
-    maintenancePriority = "Low";
-  }
-
-  // 2. Operational Intelligence (Utilization, Idle status, Recommendation)
-  let utilization = asset.utilization;
-  if (asset.status === "Available") {
-    utilization = 0;
-  } else if (asset.status === "Under Maintenance") {
-    utilization = 0;
-  } else if (asset.status === "Allocated" && !utilization) {
-    utilization = 85; // Default if allocated but none set
-  }
-
-  let idleDays = 0;
-  let isIdle = false;
-  if (asset.status === "Available" && asset.lastAllocatedDate) {
-    idleDays = getDaysDiff(CURRENT_DATE_STR, asset.lastAllocatedDate);
-    if (idleDays >= 30) {
-      isIdle = true;
-    }
-  }
-
-  let recommendation = "Optimal";
-  if (healthScore < 35) {
-    recommendation = "Dispose";
-  } else if (asset.status === "Under Maintenance") {
-    recommendation = "Repair";
-  } else if (isIdle) {
-    recommendation = "Reallocate";
-  } else if (asset.status === "Available") {
-    recommendation = "Allocate";
-  } else if (utilization < 50) {
-    recommendation = "Reallocate";
-  }
-
-  // 3. Warranty Status (Days Left / Expired)
+  // Warranty Days Left
   const purchase = new Date(asset.purchaseDate);
   const warrantyEnd = new Date(purchase.setFullYear(purchase.getFullYear() + asset.warrantyYears));
   const current = new Date(CURRENT_DATE_STR);
   const warrantyDaysLeft = Math.floor((warrantyEnd - current) / (1000 * 60 * 60 * 24));
   const isWarrantyExpired = warrantyDaysLeft <= 0;
 
+  // Warranty Penalty: Active = 0, Expires within 30 days = 5, Expired = 10
+  let warrantyPenalty = 0;
+  if (isWarrantyExpired) {
+    warrantyPenalty = 10;
+  } else if (warrantyDaysLeft <= 30) {
+    warrantyPenalty = 5;
+  }
+
+  // Calculate & Clamp Health Score between 0 and 100
+  const rawHealth = 100 - agePenalty - maintenancePenalty - conditionPenalty - warrantyPenalty;
+  const healthScore = Math.max(0, Math.min(100, Math.round(rawHealth)));
+
+  // Maintenance Priority based on Health Score ranges:
+  // 90–100 → Low
+  // 70–89 → Medium
+  // 40–69 → High
+  // 0–39 → Critical
+  let maintenancePriority = "Low";
+  let healthStatus = "Healthy";
+  let healthColor = "green"; // 'green' | 'yellow' | 'red'
+
+  if (healthScore < 40) {
+    maintenancePriority = "Critical";
+    healthStatus = "Critical";
+    healthColor = "red";
+  } else if (healthScore < 70) {
+    maintenancePriority = "High";
+    healthStatus = "Critical";
+    healthColor = "red";
+  } else if (healthScore < 90) {
+    maintenancePriority = "Medium";
+    healthStatus = "Warning";
+    healthColor = "yellow";
+  } else {
+    maintenancePriority = "Low";
+    healthStatus = "Healthy";
+    healthColor = "green";
+  }
+
+  // 2. Efficiency Score
+  // Efficiency = (Allocated Days / Total Asset Age in Days) * 100
+  const totalAgeDays = Math.max(1, getDaysDiff(CURRENT_DATE_STR, asset.purchaseDate));
+  const allocatedDays = Math.min(totalAgeDays, calculateAllocatedDays(asset.history || [], asset.purchaseDate));
+  const efficiency = Math.max(0, Math.min(100, Math.round((allocatedDays / totalAgeDays) * 100)));
+
+  let efficiencyLevel = "Low"; // "Low" | "Moderate" | "High"
+  if (efficiency >= 70) {
+    efficiencyLevel = "High";
+  } else if (efficiency >= 30) {
+    efficiencyLevel = "Moderate";
+  } else {
+    efficiencyLevel = "Low";
+  }
+
+  // 3. Dynamic Recommendations Rules
+  // Precedence:
+  // Health < 40 → Replace Asset
+  // Condition = Poor → Repair Asset
+  // Efficiency < 30% → Reallocate Asset
+  // Warranty expires within 30 days → Renew Warranty
+  // Otherwise → Operating Normally
+  let recommendation = "Operating Normally";
+  if (healthScore < 40) {
+    recommendation = "Replace Asset";
+  } else if (condition === "Poor") {
+    recommendation = "Repair Asset";
+  } else if (efficiency < 30) {
+    recommendation = "Reallocate Asset";
+  } else if (warrantyDaysLeft <= 30) {
+    recommendation = "Renew Warranty";
+  }
+
+  // 4. Idle duration monitoring
+  let idleDays = 0;
+  let isIdle = false;
+  if (asset.status === "Available") {
+    const referenceDate = asset.lastAllocatedDate || asset.purchaseDate;
+    idleDays = getDaysDiff(CURRENT_DATE_STR, referenceDate);
+    if (idleDays > 30) {
+      isIdle = true;
+    }
+  }
+
+  // 5. Last Maintenance Date Calculation
+  const maintHistory = (asset.history || []).filter(h => h.type === "Maintenance");
+  const lastMaintDate = maintHistory.length > 0 ? maintHistory[maintHistory.length - 1].date : asset.purchaseDate;
+  const daysSinceLastMaintenance = getDaysDiff(CURRENT_DATE_STR, lastMaintDate);
+  const isMaintenanceOverdue = daysSinceLastMaintenance > 180;
+
+  // 6. Alert criteria checks
+  const hasAlerts = 
+    healthScore < 40 ||
+    efficiency < 30 ||
+    warrantyDaysLeft <= 30 ||
+    isMaintenanceOverdue ||
+    isIdle;
+
   return {
     ...asset,
+    condition,
     age: parseFloat(age.toFixed(2)),
     healthScore,
     healthStatus,
     healthColor,
     maintenancePriority,
-    utilization,
+    efficiency,
+    efficiencyLevel,
     idleDays,
     isIdle,
     recommendation,
     warrantyDaysLeft: isWarrantyExpired ? 0 : warrantyDaysLeft,
     isWarrantyExpired,
-    warrantyStatusText: isWarrantyExpired ? "Expired" : `${warrantyDaysLeft} Days Left`
+    warrantyStatusText: isWarrantyExpired ? "Expired" : `${warrantyDaysLeft} Days Left`,
+    daysSinceLastMaintenance,
+    isMaintenanceOverdue,
+    hasAlerts,
+    healthBreakdown: {
+      base: 100,
+      age: parseFloat(age.toFixed(2)),
+      agePenalty,
+      maintenanceCount: asset.maintenanceCount,
+      maintenancePenalty,
+      condition,
+      conditionPenalty,
+      warrantyDaysLeft: isWarrantyExpired ? 0 : warrantyDaysLeft,
+      warrantyPenalty,
+      rawScore: parseFloat(rawHealth.toFixed(1))
+    }
   };
 }
 
@@ -300,9 +401,9 @@ export const mockDb = {
       warrantyYears: parseInt(assetData.warrantyYears) || 2,
       cost: parseFloat(assetData.cost) || 0,
       description: assetData.description || "",
-      utilization: 0,
+      condition: assetData.condition || "Excellent",
       history: [
-        { date: CURRENT_DATE_STR, type: "Created", note: "Asset created via management console." }
+        { date: CURRENT_DATE_STR, type: "Created", note: "Asset registered in system database." }
       ]
     };
 
@@ -324,6 +425,7 @@ export const mockDb = {
       warrantyYears: parseInt(assetData.warrantyYears) || 2,
       cost: parseFloat(assetData.cost) || 0,
       description: assetData.description,
+      condition: assetData.condition,
     };
 
     saveRawAssets(raw);
@@ -345,7 +447,6 @@ export const mockDb = {
     raw[index].status = "Allocated";
     raw[index].currentUser = user || "Unknown User";
     raw[index].lastAllocatedDate = CURRENT_DATE_STR;
-    raw[index].utilization = Math.floor(Math.random() * 25) + 75; // 75 - 98%
     raw[index].history.push({
       date: CURRENT_DATE_STR,
       type: "Allocated",
@@ -364,7 +465,6 @@ export const mockDb = {
     const prevUser = raw[index].currentUser;
     raw[index].status = "Available";
     raw[index].currentUser = null;
-    raw[index].utilization = 0;
     raw[index].history.push({
       date: CURRENT_DATE_STR,
       type: "Returned",
@@ -382,7 +482,6 @@ export const mockDb = {
 
     raw[index].status = "Under Maintenance";
     raw[index].maintenanceCount += 1;
-    raw[index].utilization = 0;
     raw[index].history.push({
       date: CURRENT_DATE_STR,
       type: "Maintenance",
@@ -421,6 +520,23 @@ export const mockDb = {
       date: CURRENT_DATE_STR,
       type: "Transfer",
       note: `Transferred ownership from ${oldUser || "unassigned"} to ${targetUser}.`
+    });
+
+    saveRawAssets(raw);
+    return computeAssetIntelligence(raw[index]);
+  },
+
+  disposeAsset: (id) => {
+    const raw = getRawAssets();
+    const index = raw.findIndex(a => a.id === id);
+    if (index === -1) return null;
+
+    raw[index].status = "Disposed";
+    raw[index].currentUser = null;
+    raw[index].history.push({
+      date: CURRENT_DATE_STR,
+      type: "Disposed",
+      note: "Asset decommissioned and disposed."
     });
 
     saveRawAssets(raw);
