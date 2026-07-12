@@ -64,7 +64,7 @@ const INITIAL_ASSETS = [
   },
   {
     id: "AF-0004",
-    name: "Cisco Enterprise Router Catalyst 9300",
+    name: "Cisco Router",
     category: "Networking",
     status: "Available",
     purchaseDate: "2020-03-12",

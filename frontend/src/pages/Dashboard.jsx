@@ -194,6 +194,74 @@ export default function Dashboard() {
     }
   });
 
+  // 8. Executive Insights calculations
+  let portfolioHealthStatus = "Critical";
+  if (enterpriseHealthIndex >= 90) portfolioHealthStatus = "Excellent";
+  else if (enterpriseHealthIndex >= 70) portfolioHealthStatus = "Healthy";
+  else if (enterpriseHealthIndex >= 40) portfolioHealthStatus = "Warning";
+
+  // Highest Risk Category: Category with lowest average health score
+  const categoryStats = {};
+  assets.forEach(a => {
+    if (a.status !== 'Disposed') {
+      if (!categoryStats[a.category]) {
+        categoryStats[a.category] = { sumHealth: 0, count: 0 };
+      }
+      categoryStats[a.category].sumHealth += a.healthScore;
+      categoryStats[a.category].count += 1;
+    }
+  });
+  
+  let highestRiskCategory = "None";
+  let lowestAvgHealth = 101;
+  Object.keys(categoryStats).forEach(cat => {
+    const avg = categoryStats[cat].sumHealth / categoryStats[cat].count;
+    if (avg < lowestAvgHealth) {
+      lowestAvgHealth = avg;
+      highestRiskCategory = cat;
+    }
+  });
+
+  // Most Utilized Department
+  const getDepartment = (user) => {
+    if (!user) return null;
+    const lower = user.toLowerCase();
+    if (lower.includes('developer') || lower.includes('dev') || lower.includes('it') || lower.includes('engineer') || lower.includes('aravind')) return 'Information Technology';
+    if (lower.includes('sales') || lower.includes('marketing') || lower.includes('vp') || lower.includes('sarah')) return 'Sales & Marketing';
+    if (lower.includes('design') || lower.includes('emma') || lower.includes('artist')) return 'Design';
+    if (lower.includes('conference') || lower.includes('hq') || lower.includes('room') || lower.includes('building')) return 'Administration';
+    return 'General Operations';
+  };
+
+  const deptStats = {};
+  assets.forEach(a => {
+    const dept = getDepartment(a.currentUser);
+    if (dept) {
+      if (!deptStats[dept]) {
+        deptStats[dept] = { sumEff: 0, count: 0 };
+      }
+      deptStats[dept].sumEff += a.efficiency;
+      deptStats[dept].count += 1;
+    }
+  });
+
+  let mostUtilizedDept = "None";
+  let maxAvgEff = -1;
+  Object.keys(deptStats).forEach(dept => {
+    const avg = deptStats[dept].sumEff / deptStats[dept].count;
+    if (avg > maxAvgEff) {
+      maxAvgEff = avg;
+      mostUtilizedDept = dept;
+    }
+  });
+
+  // Assets Requiring Immediate Attention (health < 40 or maintenance overdue)
+  const immediateAttentionCount = assets.filter(a => (a.healthScore < 40 || a.isMaintenanceOverdue) && a.status !== 'Disposed').length;
+
+  // Upcoming Warranty Expirations (30 Days)
+  const upcomingWarrantyExpirationsCount = assets.filter(a => a.warrantyDaysLeft > 0 && a.warrantyDaysLeft <= 30 && a.status !== 'Disposed').length;
+
+
   // Action Submissions
   const handleRegisterSubmit = (e) => {
     e.preventDefault();
@@ -591,54 +659,136 @@ export default function Dashboard() {
         </div>
       </div>
 
-      {/* Smart Alerts Console */}
-      <div className="glass-card rounded-2xl p-6">
-        <div className="flex items-center justify-between mb-5 border-b border-slate-800 pb-3">
-          <div className="flex items-center gap-2.5">
-            <div className="bg-amber-500/10 p-2 rounded-xl text-amber-400 border border-amber-500/20">
-              <ShieldCheck size={20} className="pulse-glow" />
-            </div>
-            <div>
-              <h3 className="text-lg font-bold text-white">Rule-Based Smart Alerts</h3>
-              <p className="text-xs text-slate-400">Dynamic system anomalies requiring operations resolution.</p>
-            </div>
-          </div>
-          <span className="text-xs bg-slate-800/80 px-2.5 py-1 rounded-md text-slate-400 font-mono">
-            {alerts.length} Active Alerts
-          </span>
-        </div>
-
-        {alerts.length > 0 ? (
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {alerts.map((alert) => (
-              <div key={alert.id} className="bg-slate-905/30 border border-slate-850/80 hover:border-slate-700/80 rounded-xl p-4 flex items-start gap-3.5 transition-all duration-300">
-                <div className="p-2 bg-slate-900 rounded-lg border border-slate-800 text-slate-400 shrink-0 mt-0.5">
-                  {alert.type === 'health' && <AlertTriangle size={15} className="text-red-400" />}
-                  {alert.type === 'efficiency' && <TrendingUp size={15} className="text-amber-400" />}
-                  {alert.type === 'warranty' && <ShieldAlert size={15} className="text-pink-400" />}
-                  {alert.type === 'maintenance' && <Wrench size={15} className="text-orange-400" />}
-                  {alert.type === 'idle' && <Coffee size={15} className="text-indigo-400" />}
+      {/* Bottom Layout Grid: Alerts & Executive Insights */}
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+        
+        {/* Smart Alerts Console */}
+        <div className="glass-card rounded-2xl p-6 lg:col-span-7 flex flex-col justify-between">
+          <div>
+            <div className="flex items-center justify-between mb-5 border-b border-slate-800 pb-3">
+              <div className="flex items-center gap-2.5">
+                <div className="bg-amber-500/10 p-2 rounded-xl text-amber-400 border border-amber-500/20">
+                  <ShieldCheck size={20} className="pulse-glow" />
                 </div>
-
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center justify-between gap-2">
-                    <Link to={`/assets/${alert.assetId}`} className="text-sm font-semibold text-white hover:text-violet-400 hover:underline truncate">
-                      {alert.assetName}
-                    </Link>
-                    <span className="text-[9px] text-slate-500 font-mono uppercase font-semibold bg-slate-900 px-1.5 py-0.5 rounded border border-slate-850">{alert.assetId}</span>
-                  </div>
-                  <p className="text-xs text-slate-400 mt-1 leading-relaxed">{alert.message}</p>
+                <div>
+                  <h3 className="text-lg font-bold text-white">Rule-Based Smart Alerts</h3>
+                  <p className="text-xs text-slate-400">Dynamic system anomalies requiring operations resolution.</p>
                 </div>
               </div>
-            ))}
+              <span className="text-xs bg-slate-800/80 px-2.5 py-1 rounded-md text-slate-400 font-mono">
+                {alerts.length} Active Alerts
+              </span>
+            </div>
+
+            {alerts.length > 0 ? (
+              <div className="grid grid-cols-1 gap-3 max-h-[300px] overflow-y-auto pr-1">
+                {alerts.map((alert) => (
+                  <div key={alert.id} className="bg-slate-905/30 border border-slate-850/80 hover:border-slate-700/80 rounded-xl p-4 flex items-start gap-3.5 transition-all duration-300">
+                    <div className="p-2 bg-slate-900 rounded-lg border border-slate-800 text-slate-400 shrink-0 mt-0.5">
+                      {alert.type === 'health' && <AlertTriangle size={15} className="text-red-400" />}
+                      {alert.type === 'efficiency' && <TrendingUp size={15} className="text-amber-400" />}
+                      {alert.type === 'warranty' && <ShieldAlert size={15} className="text-pink-400" />}
+                      {alert.type === 'maintenance' && <Wrench size={15} className="text-orange-400" />}
+                      {alert.type === 'idle' && <Coffee size={15} className="text-indigo-400" />}
+                    </div>
+
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center justify-between gap-2">
+                        <Link to={`/assets/${alert.assetId}`} className="text-sm font-semibold text-white hover:text-violet-400 hover:underline truncate">
+                          {alert.assetName}
+                        </Link>
+                        <span className="text-[9px] text-slate-500 font-mono uppercase font-semibold bg-slate-900 px-1.5 py-0.5 rounded border border-slate-850">{alert.assetId}</span>
+                      </div>
+                      <p className="text-xs text-slate-400 mt-1 leading-relaxed">{alert.message}</p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="flex flex-col items-center justify-center py-10 bg-slate-900/10 rounded-xl border border-dashed border-slate-800">
+                <CheckCircle size={32} className="text-emerald-500/40 mb-3" />
+                <p className="text-sm font-medium text-slate-350">All systems optimal</p>
+                <p className="text-xs text-slate-500 mt-0.5">No anomalies detected.</p>
+              </div>
+            )}
           </div>
-        ) : (
-          <div className="flex flex-col items-center justify-center py-10 bg-slate-900/10 rounded-xl border border-dashed border-slate-800">
-            <CheckCircle size={32} className="text-emerald-500/40 mb-3" />
-            <p className="text-sm font-medium text-slate-350">All systems optimal</p>
-            <p className="text-xs text-slate-500 mt-0.5">No anomalies detected.</p>
+        </div>
+
+        {/* Executive Insights Widget */}
+        <div className="glass-card rounded-2xl p-6 lg:col-span-5 flex flex-col justify-between">
+          <div>
+            <div className="flex items-center gap-2.5 mb-5 border-b border-slate-800 pb-3">
+              <div className="bg-violet-500/10 p-2 rounded-xl text-violet-400 border border-violet-500/20">
+                <TrendingUp size={20} />
+              </div>
+              <div>
+                <h3 className="text-lg font-bold text-white">Executive Insights</h3>
+                <p className="text-xs text-slate-400">Management alerts and performance indicators.</p>
+              </div>
+            </div>
+
+            <div className="space-y-4">
+              {/* Health insight */}
+              <div className="flex justify-between items-center py-2.5 border-b border-slate-900/60">
+                <span className="text-xs text-slate-400 font-medium">Asset Portfolio Health</span>
+                <span className="text-xs font-bold text-white flex items-center gap-1.5">
+                  <span className="text-violet-450">{enterpriseHealthIndex}%</span>
+                  <span className={`px-2 py-0.5 rounded-full text-[10px] uppercase border ${
+                    portfolioHealthStatus === "Excellent" ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/20" :
+                    portfolioHealthStatus === "Healthy" ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/20" :
+                    portfolioHealthStatus === "Warning" ? "bg-amber-500/10 text-amber-400 border-amber-500/20" :
+                    "bg-red-500/10 text-red-400 border-red-500/20"
+                  }`}>
+                    {portfolioHealthStatus}
+                  </span>
+                </span>
+              </div>
+
+              {/* Risk category insight */}
+              <div className="flex justify-between items-center py-2.5 border-b border-slate-900/60">
+                <span className="text-xs text-slate-400 font-medium">Highest Risk Category</span>
+                <span className="text-xs font-bold text-red-400 font-semibold">{highestRiskCategory}</span>
+              </div>
+
+              {/* Most Utilized Department insight */}
+              <div className="flex justify-between items-center py-2.5 border-b border-slate-900/60">
+                <span className="text-xs text-slate-400 font-medium">Most Utilized Department</span>
+                <span className="text-xs font-bold text-white">{mostUtilizedDept}</span>
+              </div>
+
+              {/* Attention count insight */}
+              <div className="flex justify-between items-center py-2.5 border-b border-slate-900/60">
+                <span className="text-xs text-slate-400 font-medium">Assets Requiring Attention</span>
+                <span className={`text-xs font-bold font-mono px-2 py-0.5 rounded ${
+                  immediateAttentionCount > 0 ? "bg-red-500/10 text-red-400 border border-red-500/20" : "text-slate-400 bg-slate-900"
+                }`}>
+                  {immediateAttentionCount} Assets
+                </span>
+              </div>
+
+              {/* Idle reallocations count insight */}
+              <div className="flex justify-between items-center py-2.5 border-b border-slate-900/60">
+                <span className="text-xs text-slate-400 font-medium">Idle Assets for Reallocation</span>
+                <span className={`text-xs font-bold font-mono px-2 py-0.5 rounded ${
+                  idleCount > 0 ? "bg-amber-500/10 text-amber-400 border border-amber-500/20" : "text-slate-405 bg-slate-900"
+                }`}>
+                  {idleCount} Assets
+                </span>
+              </div>
+
+              {/* Expirations countdown insight */}
+              <div className="flex justify-between items-center py-2.5">
+                <span className="text-xs text-slate-400 font-medium">Upcoming Warranty Expirations</span>
+                <span className={`text-xs font-bold font-mono px-2 py-0.5 rounded ${
+                  upcomingWarrantyExpirationsCount > 0 ? "bg-pink-500/10 text-pink-400 border border-pink-500/20" : "text-slate-405 bg-slate-900"
+                }`}>
+                  {upcomingWarrantyExpirationsCount} Contract{upcomingWarrantyExpirationsCount === 1 ? '' : 's'}
+                </span>
+              </div>
+            </div>
           </div>
-        )}
+        </div>
+
       </div>
 
       {/* ACTION 1: Register Asset Modal */}
@@ -755,7 +905,7 @@ export default function Dashboard() {
                     >
                       <option value="">-- Choose Asset --</option>
                       {availableAssetsList.map(a => (
-                        <option key={a.id} value={a.id}>{a.id} - {a.name} ({a.category})</option>
+                        <option key={a.id} value={a.id}>{a.name} ({a.id})</option>
                       ))}
                     </select>
                   </div>
@@ -805,7 +955,7 @@ export default function Dashboard() {
                 >
                   <option value="">-- Choose Asset --</option>
                   {assets.filter(a => a.status !== 'Under Maintenance' && a.status !== 'Disposed').map(a => (
-                    <option key={a.id} value={a.id}>{a.id} - {a.name} ({a.status})</option>
+                    <option key={a.id} value={a.id}>{a.name} ({a.id})</option>
                   ))}
                 </select>
               </div>
