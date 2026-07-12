@@ -664,5 +664,207 @@ export const mockDb = {
     // Fallback: wait 1.2s to simulate backend audit scan
     await new Promise(resolve => setTimeout(resolve, 1200));
     return localStats;
+  },
+
+  getTransfers: () => {
+    const local = localStorage.getItem('assetflow_transfers');
+    return local ? JSON.parse(local) : [];
+  },
+
+  createTransfer: (assetId, requestedOwner) => {
+    const transfers = mockDb.getTransfers();
+    const assets = getRawAssets();
+    const asset = assets.find(a => a.id === assetId);
+    if (!asset) return null;
+
+    const currentOwner = asset.currentUser || 'Unassigned';
+    const newTransfer = {
+      id: 'TR-' + Date.now(),
+      assetId,
+      assetName: asset.name,
+      currentOwner,
+      requestedOwner,
+      state: 'requested',
+      requestDate: CURRENT_DATE_STR
+    };
+
+    transfers.push(newTransfer);
+    localStorage.setItem('assetflow_transfers', JSON.stringify(transfers));
+
+    // Update asset history locally
+    const index = assets.findIndex(a => a.id === assetId);
+    assets[index].history.push({
+      date: CURRENT_DATE_STR,
+      type: 'Transfer Requested',
+      note: `Transfer requested from ${currentOwner} to ${requestedOwner}.`
+    });
+    saveRawAssets(assets);
+
+    return newTransfer;
+  },
+
+  approveTransfer: (transferId) => {
+    const transfers = mockDb.getTransfers();
+    const idx = transfers.findIndex(t => String(t.id) === String(transferId));
+    if (idx === -1) return false;
+
+    transfers[idx].state = 'approved';
+    localStorage.setItem('assetflow_transfers', JSON.stringify(transfers));
+
+    const { assetId, requestedOwner } = transfers[idx];
+    const assets = getRawAssets();
+    const assetIdx = assets.findIndex(a => a.id === assetId);
+    if (assetIdx !== -1) {
+      assets[assetIdx].status = 'Allocated';
+      assets[assetIdx].currentUser = requestedOwner;
+      assets[assetIdx].history.push({
+        date: CURRENT_DATE_STR,
+        type: 'Transfer Approved',
+        note: `Transfer request approved. Custodian updated to ${requestedOwner}.`
+      });
+      saveRawAssets(assets);
+    }
+    return true;
+  },
+
+  rejectTransfer: (transferId) => {
+    const transfers = mockDb.getTransfers();
+    const idx = transfers.findIndex(t => String(t.id) === String(transferId));
+    if (idx === -1) return false;
+
+    transfers[idx].state = 'rejected';
+    localStorage.setItem('assetflow_transfers', JSON.stringify(transfers));
+
+    const { assetId, requestedOwner } = transfers[idx];
+    const assets = getRawAssets();
+    const assetIdx = assets.findIndex(a => a.id === assetId);
+    if (assetIdx !== -1) {
+      assets[assetIdx].history.push({
+        date: CURRENT_DATE_STR,
+        type: 'Transfer Rejected',
+        note: `Transfer request to ${requestedOwner} rejected.`
+      });
+      saveRawAssets(assets);
+    }
+    return true;
+  },
+
+  getBookings: () => {
+    const local = localStorage.getItem('assetflow_bookings');
+    return local ? JSON.parse(local) : [];
+  },
+
+  createBooking: (bookingData) => {
+    const bookings = mockDb.getBookings();
+    const { assetId, bookingDate, startTime, endTime, employeeName } = bookingData;
+
+    // Check overlap
+    const conflict = bookings.find(b => 
+      b.assetId === assetId && 
+      b.bookingDate === bookingDate && 
+      parseFloat(b.startTime) < parseFloat(endTime) && 
+      parseFloat(b.endTime) > parseFloat(startTime)
+    );
+
+    if (conflict) {
+      const formatTime = (t) => {
+        const h = Math.floor(t);
+        const m = Math.round((t % 1) * 60);
+        return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
+      };
+      return {
+        error: 'Conflict',
+        message: `Resource is already booked on this date from ${formatTime(conflict.startTime)} to ${formatTime(conflict.endTime)}.`
+      };
+    }
+
+    const assets = getRawAssets();
+    const asset = assets.find(a => a.id === assetId);
+    const newBooking = {
+      id: 'BK-' + Date.now(),
+      assetId,
+      assetName: asset ? asset.name : 'Unknown Asset',
+      bookingDate,
+      startTime: parseFloat(startTime),
+      endTime: parseFloat(endTime),
+      employeeName
+    };
+
+    bookings.push(newBooking);
+    localStorage.setItem('assetflow_bookings', JSON.stringify(bookings));
+
+    // Update asset history locally
+    const assetIdx = assets.findIndex(a => a.id === assetId);
+    if (assetIdx !== -1) {
+      const formatTime = (t) => {
+        const h = Math.floor(t);
+        const m = Math.round((t % 1) * 60);
+        return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
+      };
+      assets[assetIdx].history.push({
+        date: CURRENT_DATE_STR,
+        type: 'Booking',
+        note: `Booked by ${employeeName} from ${formatTime(startTime)} to ${formatTime(endTime)}.`
+      });
+      saveRawAssets(assets);
+    }
+
+    return newBooking;
+  },
+
+  getTransfersAsync: async () => {
+    const remote = await callOdooAPI('/api/assetflow/get_transfers');
+    if (remote) {
+      localStorage.setItem('assetflow_transfers', JSON.stringify(remote));
+      return remote;
+    }
+    return mockDb.getTransfers();
+  },
+
+  createTransferAsync: async (assetId, requestedOwner) => {
+    const remote = await callOdooAPI('/api/assetflow/create_transfer', { asset_id: assetId, requested_owner: requestedOwner });
+    if (remote) return remote;
+    await new Promise(resolve => setTimeout(resolve, 1000));
+    return mockDb.createTransfer(assetId, requestedOwner);
+  },
+
+  approveTransferAsync: async (transferId) => {
+    const remote = await callOdooAPI('/api/assetflow/approve_transfer', { transfer_id: transferId });
+    if (remote) return remote;
+    await new Promise(resolve => setTimeout(resolve, 1000));
+    return mockDb.approveTransfer(transferId);
+  },
+
+  rejectTransferAsync: async (transferId) => {
+    const remote = await callOdooAPI('/api/assetflow/reject_transfer', { transfer_id: transferId });
+    if (remote) return remote;
+    await new Promise(resolve => setTimeout(resolve, 1000));
+    return mockDb.rejectTransfer(transferId);
+  },
+
+  getBookingsAsync: async () => {
+    const remote = await callOdooAPI('/api/assetflow/get_bookings');
+    if (remote) {
+      localStorage.setItem('assetflow_bookings', JSON.stringify(remote));
+      return remote;
+    }
+    return mockDb.getBookings();
+  },
+
+  createBookingAsync: async (bookingData) => {
+    const { assetId, bookingDate, startTime, endTime, employeeName } = bookingData;
+    const remote = await callOdooAPI('/api/assetflow/create_booking', {
+      asset_id: assetId,
+      booking_date: bookingDate,
+      start_time: startTime,
+      end_time: endTime,
+      employee_name: employeeName
+    });
+    if (remote) {
+      if (remote.error) return remote;
+      return remote;
+    }
+    await new Promise(resolve => setTimeout(resolve, 1000));
+    return mockDb.createBooking(bookingData);
   }
 };

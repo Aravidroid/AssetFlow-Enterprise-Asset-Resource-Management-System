@@ -1,2 +1,4 @@
 id,name,model_id:id,group_id:id,perm_read,perm_write,perm_create,perm_unlink
 access_assetflow_asset_user,access_assetflow_asset_user,model_assetflow_asset,base.group_user,1,1,1,1
+access_assetflow_transfer_user,access_assetflow_transfer_user,model_assetflow_transfer,base.group_user,1,1,1,1
+access_assetflow_booking_user,access_assetflow_booking_user,model_assetflow_booking,base.group_user,1,1,1,1

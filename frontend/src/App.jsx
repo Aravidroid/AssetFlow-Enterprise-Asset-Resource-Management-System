@@ -1,21 +1,27 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { HashRouter as Router, Routes, Route, Link, useLocation } from 'react-router-dom';
-import { LayoutDashboard, Boxes, Database, Cpu, Calendar } from 'lucide-react';
+import { LayoutDashboard, Boxes, Database, Cpu, Calendar, CheckCircle } from 'lucide-react';
 import Dashboard from './pages/Dashboard';
 import AssetList from './pages/AssetList';
 import AssetDetail from './pages/AssetDetail';
+import Bookings from './pages/Bookings';
+import Transfers from './pages/Transfers';
 
-function Navigation() {
+function Navigation({ userRole }) {
   const location = useLocation();
 
-  const navItems = [
-    { path: '/', label: 'Executive Dashboard', icon: LayoutDashboard },
-    { path: '/assets', label: 'Asset Directory', icon: Boxes },
+  const allNavItems = [
+    { path: '/', label: 'Executive Dashboard', icon: LayoutDashboard, roles: ['Admin', 'Department Head', 'Employee'] },
+    { path: '/assets', label: 'Asset Directory', icon: Boxes, roles: ['Admin', 'Asset Manager', 'Department Head', 'Employee'] },
+    { path: '/transfers', label: 'Transfers & Approvals', icon: CheckCircle, roles: ['Admin', 'Asset Manager', 'Department Head'] },
+    { path: '/bookings', label: 'Resource Bookings', icon: Calendar, roles: ['Admin', 'Employee'] }
   ];
+
+  const visibleItems = allNavItems.filter(item => item.roles.includes(userRole));
 
   return (
     <nav className="space-y-1.5 px-3 py-6">
-      {navItems.map((item) => {
+      {visibleItems.map((item) => {
         const Icon = item.icon;
         const isActive =
           item.path === '/'
@@ -42,6 +48,8 @@ function Navigation() {
 }
 
 function App() {
+  const [userRole, setUserRole] = useState(localStorage.getItem('assetflow_role') || 'Admin');
+
   return (
     <Router>
       <div className="flex min-h-screen bg-[#070a13] text-slate-100 overflow-x-hidden font-sans">
@@ -62,7 +70,7 @@ function App() {
             </div>
           </div>
 
-          <Navigation />
+          <Navigation userRole={userRole} />
 
           {/* Connected State Badge */}
           <div className="mt-auto p-4 border-t border-slate-800/80">
@@ -76,7 +84,7 @@ function App() {
                   <Database size={12} className="text-slate-400" />
                   Local Instance Active
                 </p>
-                <p className="text-[10px] text-slate-500 truncate">SQLite Mock Layer</p>
+                <p className="text-[10px] text-slate-500 truncate">SQLite Layer</p>
               </div>
             </div>
           </div>
@@ -97,11 +105,25 @@ function App() {
             </div>
 
             {/* Desktop Quick Header */}
-            <div className="hidden md:flex items-center gap-2 text-sm text-slate-400">
-              <span className="font-semibold text-slate-300">Workspace:</span>
-              <span className="bg-slate-800/60 border border-slate-700/60 px-2 py-0.5 rounded text-xs text-slate-300 font-mono">
-                AssetFlow-Hackathon
-              </span>
+            <div className="hidden md:flex items-center gap-4 text-sm text-slate-400">
+              <div className="flex items-center gap-2">
+                <span className="font-semibold text-slate-350">Active Role:</span>
+                <select 
+                  value={userRole} 
+                  onChange={(e) => {
+                    localStorage.setItem('assetflow_role', e.target.value);
+                    setUserRole(e.target.value);
+                    // Force refresh to reload views cleanly
+                    window.location.reload();
+                  }}
+                  className="bg-slate-900 border border-slate-800 rounded-xl px-3 py-1.5 text-xs text-white focus:outline-none focus:border-violet-500 cursor-pointer font-bold"
+                >
+                  <option value="Admin">🛡️ Admin</option>
+                  <option value="Asset Manager">💼 Asset Manager</option>
+                  <option value="Department Head">🎓 Department Head</option>
+                  <option value="Employee">👤 Employee</option>
+                </select>
+              </div>
             </div>
 
             {/* DateTime Display (Context Date: July 12, 2026) */}
@@ -132,9 +154,11 @@ function App() {
           {/* Main Scroll Container */}
           <main className="flex-1 overflow-y-auto p-4 md:p-8 bg-gradient-to-b from-[#070a13] to-[#04060d]">
             <Routes>
-              <Route path="/" element={<Dashboard />} />
-              <Route path="/assets" element={<AssetList />} />
-              <Route path="/assets/:id" element={<AssetDetail />} />
+              <Route path="/" element={<Dashboard userRole={userRole} />} />
+              <Route path="/assets" element={<AssetList userRole={userRole} />} />
+              <Route path="/assets/:id" element={<AssetDetail userRole={userRole} />} />
+              <Route path="/bookings" element={<Bookings userRole={userRole} />} />
+              <Route path="/transfers" element={<Transfers userRole={userRole} />} />
             </Routes>
           </main>
         </div>

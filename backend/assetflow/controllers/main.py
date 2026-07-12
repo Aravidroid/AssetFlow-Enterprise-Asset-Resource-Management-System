@@ -209,7 +209,29 @@ class AssetFlowAPI(http.Controller):
         history = [
             { 'date': purchase_date.strftime('%Y-%m-%d'), 'type': 'Created', 'note': 'Asset registered in headless ERP.' }
         ]
-        if asset.state == 'allocated':
+        
+        # Load associated bookings dynamically
+        if 'assetflow.booking' in request.env:
+            Bookings = request.env['assetflow.booking'].sudo().search([('asset_id', '=', asset.id)], order='booking_date asc')
+            for b in Bookings:
+                history.append({
+                    'date': b.booking_date.strftime('%Y-%m-%d'),
+                    'type': 'Booking',
+                    'note': f"Booked by {b.employee_name} from {int(b.start_time):02d}:{int((b.start_time % 1) * 60):02d} to {int(b.end_time):02d}:{int((b.end_time % 1) * 60):02d}."
+                })
+
+        # Load associated transfers dynamically
+        if 'assetflow.transfer' in request.env:
+            Transfers = request.env['assetflow.transfer'].sudo().search([('asset_id', '=', asset.id)], order='request_date asc')
+            for t in Transfers:
+                state_lbl = "Approved" if t.state == 'approved' else ("Rejected" if t.state == 'rejected' else "Requested")
+                history.append({
+                    'date': t.request_date.strftime('%Y-%m-%d'),
+                    'type': 'Transfer',
+                    'note': f"Transfer from {t.current_owner or 'Unassigned'} to {t.requested_owner} ({state_lbl})."
+                })
+
+        if asset.state == 'allocated' and not any(h['type'] == 'Transfer' and 'Approved' in h['note'] for h in history):
             history.append({ 'date': '2026-06-01', 'type': 'Allocated', 'note': f"Assigned to {asset.employee_id.name or 'custodian'}." })
         elif asset.state == 'maintenance':
             history.append({ 'date': '2026-06-30', 'type': 'Maintenance', 'note': 'Service schedule active.' })
@@ -491,3 +513,139 @@ class AssetFlowAPI(http.Controller):
             })
             return self._compute_asset_intelligence(record)
         return {'error': 'Asset not found'}
+
+    @http.route('/api/assetflow/get_transfers', type='json', auth='none', methods=['POST'])
+    def get_transfers(self):
+        Transfer = request.env['assetflow.transfer'].sudo()
+        records = Transfer.search([])
+        res = []
+        for r in records:
+            res.append({
+                'id': r.id,
+                'assetId': r.asset_id.serial_no,
+                'assetName': r.asset_id.name,
+                'currentOwner': r.current_owner,
+                'requestedOwner': r.requested_owner,
+                'state': r.state,
+                'requestDate': r.request_date.strftime('%Y-%m-%d')
+            })
+        return res
+
+    @http.route('/api/assetflow/create_transfer', type='json', auth='none', methods=['POST'])
+    def create_transfer(self, asset_id, requested_owner):
+        Asset = request.env['assetflow.asset'].sudo()
+        Transfer = request.env['assetflow.transfer'].sudo()
+        
+        asset_record = Asset.search([('serial_no', '=', asset_id)], limit=1)
+        if not asset_record:
+            return {'error': 'Asset not found'}
+            
+        current_owner = asset_record.employee_id.name if asset_record.employee_id else 'Unassigned'
+        
+        t_req = Transfer.create({
+            'asset_id': asset_record.id,
+            'current_owner': current_owner,
+            'requested_owner': requested_owner,
+            'state': 'requested'
+        })
+        
+        return {
+            'id': t_req.id,
+            'assetId': asset_record.serial_no,
+            'assetName': asset_record.name,
+            'currentOwner': current_owner,
+            'requestedOwner': requested_owner,
+            'state': 'requested',
+            'requestDate': t_req.request_date.strftime('%Y-%m-%d')
+        }
+
+    @http.route('/api/assetflow/approve_transfer', type='json', auth='none', methods=['POST'])
+    def approve_transfer(self, transfer_id):
+        Transfer = request.env['assetflow.transfer'].sudo()
+        t_req = Transfer.browse(transfer_id)
+        if not t_req.exists():
+            return {'error': 'Transfer Request not found'}
+            
+        t_req.write({'state': 'approved'})
+        
+        asset_record = t_req.asset_id
+        emp_id = False
+        if 'hr.employee' in request.env and t_req.requested_owner:
+            Employee = request.env['hr.employee'].sudo()
+            emp = Employee.search([('name', '=', t_req.requested_owner)], limit=1)
+            if not emp:
+                emp = Employee.create({'name': t_req.requested_owner})
+            emp_id = emp.id
+            
+        asset_record.write({
+            'state': 'allocated',
+            'employee_id': emp_id
+        })
+        return {'success': True}
+
+    @http.route('/api/assetflow/reject_transfer', type='json', auth='none', methods=['POST'])
+    def reject_transfer(self, transfer_id):
+        Transfer = request.env['assetflow.transfer'].sudo()
+        t_req = Transfer.browse(transfer_id)
+        if not t_req.exists():
+            return {'error': 'Transfer Request not found'}
+            
+        t_req.write({'state': 'rejected'})
+        return {'success': True}
+
+    @http.route('/api/assetflow/get_bookings', type='json', auth='none', methods=['POST'])
+    def get_bookings(self):
+        Booking = request.env['assetflow.booking'].sudo()
+        records = Booking.search([])
+        res = []
+        for r in records:
+            res.append({
+                'id': r.id,
+                'assetId': r.asset_id.serial_no,
+                'assetName': r.asset_id.name,
+                'bookingDate': r.booking_date.strftime('%Y-%m-%d'),
+                'startTime': r.start_time,
+                'endTime': r.end_time,
+                'employeeName': r.employee_name
+            })
+        return res
+
+    @http.route('/api/assetflow/create_booking', type='json', auth='none', methods=['POST'])
+    def create_booking(self, asset_id, booking_date, start_time, end_time, employee_name):
+        Asset = request.env['assetflow.asset'].sudo()
+        Booking = request.env['assetflow.booking'].sudo()
+        
+        asset_record = Asset.search([('serial_no', '=', asset_id)], limit=1)
+        if not asset_record:
+            return {'error': 'Asset not found'}
+            
+        conflict = Booking.search([
+            ('asset_id', '=', asset_record.id),
+            ('booking_date', '=', booking_date),
+            ('start_time', '<', float(end_time)),
+            ('end_time', '>', float(start_time))
+        ], limit=1)
+        
+        if conflict:
+            return {
+                'error': 'Conflict',
+                'message': f"Resource is already booked on this date from {int(conflict.start_time):02d}:{int((conflict.start_time % 1) * 60):02d} to {int(conflict.end_time):02d}:{int((conflict.end_time % 1) * 60):02d}."
+            }
+            
+        new_b = Booking.create({
+            'asset_id': asset_record.id,
+            'booking_date': booking_date,
+            'start_time': float(start_time),
+            'end_time': float(end_time),
+            'employee_name': employee_name
+        })
+        
+        return {
+            'id': new_b.id,
+            'assetId': asset_record.serial_no,
+            'assetName': asset_record.name,
+            'bookingDate': new_b.booking_date.strftime('%Y-%m-%d'),
+            'startTime': new_b.start_time,
+            'endTime': new_b.end_time,
+            'employeeName': new_b.employee_name
+        }

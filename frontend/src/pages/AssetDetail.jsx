@@ -407,6 +407,20 @@ export default function AssetDetail() {
     e.preventDefault();
     if (!transferUser.trim()) return;
 
+    if (userRole === 'Employee') {
+      setIsTransferOpen(false);
+      mockDb.createTransferAsync(asset.id, transferUser)
+        .then(() => {
+          alert(`Transfer Request submitted successfully! Status: Pending Approval.`);
+          loadAsset();
+        })
+        .catch((err) => {
+          console.error(err);
+        });
+      setTransferUser('');
+      return;
+    }
+
     const previousAsset = { ...asset };
 
     // Optimistic Update
@@ -739,32 +753,52 @@ export default function AssetDetail() {
             ) : (
               <div className="grid grid-cols-1 gap-2.5">
                 {asset.status === 'Available' && (
-                  <button
-                    onClick={() => setIsAllocateOpen(true)}
-                    className="w-full flex items-center justify-center gap-2 bg-violet-600 hover:bg-violet-500 text-white font-medium py-2.5 px-4 rounded-xl shadow-lg transition-all cursor-pointer text-sm"
-                  >
-                    <UserPlus size={15} />
-                    Allocate Asset
-                  </button>
+                  userRole !== 'Employee' ? (
+                    <button
+                      onClick={() => setIsAllocateOpen(true)}
+                      className="w-full flex items-center justify-center gap-2 bg-violet-600 hover:bg-violet-500 text-white font-medium py-2.5 px-4 rounded-xl shadow-lg transition-all cursor-pointer text-sm"
+                    >
+                      <UserPlus size={15} />
+                      Allocate Asset
+                    </button>
+                  ) : (
+                    <Link
+                      to="/bookings"
+                      className="w-full flex items-center justify-center gap-2 bg-indigo-650 hover:bg-indigo-600 text-white font-medium py-2.5 px-4 rounded-xl shadow-lg transition-all cursor-pointer text-sm"
+                    >
+                      <Calendar size={15} />
+                      Book Resource
+                    </Link>
+                  )
                 )}
                 
                 {asset.status === 'Allocated' && (
-                  <>
-                    <button
-                      onClick={handleReturn}
-                      className="w-full flex items-center justify-center gap-2 bg-slate-800 hover:bg-slate-750 text-slate-205 border border-slate-700 py-2.5 px-4 rounded-xl transition-all cursor-pointer text-sm"
-                    >
-                      <UserMinus size={15} />
-                      Return to Stock
-                    </button>
+                  userRole !== 'Employee' ? (
+                    <>
+                      <button
+                        onClick={handleReturn}
+                        className="w-full flex items-center justify-center gap-2 bg-slate-800 hover:bg-slate-750 text-slate-205 border border-slate-700 py-2.5 px-4 rounded-xl transition-all cursor-pointer text-sm"
+                      >
+                        <UserMinus size={15} />
+                        Return to Stock
+                      </button>
+                      <button
+                        onClick={() => setIsTransferOpen(true)}
+                        className="w-full flex items-center justify-center gap-2 bg-slate-800 hover:bg-slate-750 text-slate-205 border border-slate-700 py-2.5 px-4 rounded-xl transition-all cursor-pointer text-sm"
+                      >
+                        <RefreshCw size={15} />
+                        Transfer Custodian
+                      </button>
+                    </>
+                  ) : (
                     <button
                       onClick={() => setIsTransferOpen(true)}
-                      className="w-full flex items-center justify-center gap-2 bg-slate-800 hover:bg-slate-750 text-slate-205 border border-slate-700 py-2.5 px-4 rounded-xl transition-all cursor-pointer text-sm"
+                      className="w-full flex items-center justify-center gap-2 bg-violet-600/20 hover:bg-violet-600/35 border border-violet-500/20 text-violet-400 font-semibold py-2.5 px-4 rounded-xl transition-all cursor-pointer text-sm"
                     >
                       <RefreshCw size={15} />
-                      Transfer Custodian
+                      Request Transfer
                     </button>
-                  </>
+                  )
                 )}
 
                 {asset.status !== 'Under Maintenance' ? (
@@ -776,41 +810,47 @@ export default function AssetDetail() {
                     Log Maintenance
                   </button>
                 ) : (
+                  (userRole === 'Admin' || userRole === 'Asset Manager') && (
+                    <button
+                      onClick={handleCompleteMaintenance}
+                      className="w-full flex items-center justify-center gap-2 bg-emerald-600 hover:bg-emerald-500 text-white font-medium py-2.5 px-4 rounded-xl shadow-lg transition-all cursor-pointer text-sm"
+                    >
+                      <CheckCircle size={15} />
+                      Complete Maintenance
+                    </button>
+                  )
+                )}
+
+                {/* Dispose Button (Admin/Asset Manager Only) */}
+                {(userRole === 'Admin' || userRole === 'Asset Manager') && (
                   <button
-                    onClick={handleCompleteMaintenance}
-                    className="w-full flex items-center justify-center gap-2 bg-emerald-600 hover:bg-emerald-500 text-white font-medium py-2.5 px-4 rounded-xl shadow-lg transition-all cursor-pointer text-sm"
+                    onClick={handleDispose}
+                    className="w-full flex items-center justify-center gap-2 bg-red-950/20 hover:bg-red-950/45 border border-red-500/15 text-red-400 font-medium py-2.5 px-4 rounded-xl transition-all cursor-pointer text-sm"
                   >
-                    <CheckCircle size={15} />
-                    Complete Maintenance
+                    <XCircle size={15} />
+                    Decommission / Dispose
                   </button>
                 )}
 
-                {/* Dispose Button */}
-                <button
-                  onClick={handleDispose}
-                  className="w-full flex items-center justify-center gap-2 bg-red-950/20 hover:bg-red-950/45 border border-red-500/15 text-red-400 font-medium py-2.5 px-4 rounded-xl transition-all cursor-pointer text-sm"
-                >
-                  <XCircle size={15} />
-                  Decommission / Dispose
-                </button>
-
-                {/* Edit & Delete */}
-                <div className="grid grid-cols-2 gap-2 pt-3 border-t border-slate-900">
-                  <button
-                    onClick={() => setIsEditOpen(true)}
-                    className="flex items-center justify-center gap-1.5 bg-slate-900 hover:bg-slate-800 border border-slate-800 py-2 rounded-lg text-slate-400 hover:text-white transition-all cursor-pointer text-xs"
-                  >
-                    <Edit3 size={13} />
-                    Edit Specs
-                  </button>
-                  <button
-                    onClick={handleDelete}
-                    className="flex items-center justify-center gap-1.5 bg-red-950/10 hover:bg-red-950/20 border border-red-950/30 py-2 rounded-lg text-red-500 hover:text-red-400 transition-all cursor-pointer text-xs"
-                  >
-                    <Trash2 size={13} />
-                    Delete Asset
-                  </button>
-                </div>
+                {/* Edit & Delete (Admin/Asset Manager Only) */}
+                {(userRole === 'Admin' || userRole === 'Asset Manager') && (
+                  <div className="grid grid-cols-2 gap-2 pt-3 border-t border-slate-900">
+                    <button
+                      onClick={() => setIsEditOpen(true)}
+                      className="flex items-center justify-center gap-1.5 bg-slate-900 hover:bg-slate-800 border border-slate-800 py-2 rounded-lg text-slate-400 hover:text-white transition-all cursor-pointer text-xs"
+                    >
+                      <Edit3 size={13} />
+                      Edit Specs
+                    </button>
+                    <button
+                      onClick={handleDelete}
+                      className="flex items-center justify-center gap-1.5 bg-red-950/10 hover:bg-red-950/20 border border-red-950/30 py-2 rounded-lg text-red-500 hover:text-red-400 transition-all cursor-pointer text-xs"
+                    >
+                      <Trash2 size={13} />
+                      Delete Asset
+                    </button>
+                  </div>
+                )}
               </div>
             )}
           </div>
