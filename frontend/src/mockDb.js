@@ -364,6 +364,26 @@ export function computeAssetIntelligence(asset) {
   };
 }
 
+import axios from 'axios';
+
+// Odoo JSON-RPC API POST utility
+const callOdooAPI = async (endpoint, params = {}) => {
+  try {
+    const response = await axios.post(endpoint, {
+      jsonrpc: '2.0',
+      method: 'call',
+      params: params
+    });
+    if (response.data && response.data.result) {
+      return response.data.result;
+    }
+    throw new Error("Odoo returned empty payload or RPC error");
+  } catch (err) {
+    console.warn(`Odoo endpoint ${endpoint} failed. Falling back to local state simulation.`, err);
+    return null;
+  }
+};
+
 // API methods exposed to pages
 export const mockDb = {
   getAssets: () => {
@@ -371,11 +391,41 @@ export const mockDb = {
     return raw.map(computeAssetIntelligence);
   },
 
+  getAssetsAsync: async () => {
+    const remote = await callOdooAPI('/api/assetflow/assets');
+    if (remote) {
+      // Sync local storage with Odoo source-of-truth
+      const synced = remote.map(a => ({
+        id: a.id,
+        name: a.name,
+        category: a.category,
+        status: a.status,
+        purchaseDate: a.purchaseDate,
+        maintenanceCount: a.maintenanceCount,
+        lastAllocatedDate: a.lastAllocatedDate,
+        currentUser: a.currentUser,
+        warrantyYears: a.warrantyYears,
+        cost: a.cost,
+        description: a.description,
+        condition: a.condition,
+        history: a.history
+      }));
+      localStorage.setItem(DB_KEY, JSON.stringify(synced));
+      return remote;
+    }
+    return mockDb.getAssets();
+  },
+
   getAsset: (id) => {
     const raw = getRawAssets();
     const asset = raw.find(a => a.id === id);
     if (!asset) return null;
     return computeAssetIntelligence(asset);
+  },
+
+  getAssetAsync: async (id) => {
+    const assets = await mockDb.getAssetsAsync();
+    return assets.find(a => a.id === id) || mockDb.getAsset(id);
   },
 
   addAsset: (assetData) => {
@@ -541,5 +591,70 @@ export const mockDb = {
 
     saveRawAssets(raw);
     return computeAssetIntelligence(raw[index]);
+  },
+
+  // Asynchronous API Bridging wrappers targeting custom Odoo module controller endpoints
+  // With simulated latency fallback to highlight the instant updates of Optimistic UI.
+  addAssetAsync: async (assetData) => {
+    const remote = await callOdooAPI('/api/assetflow/add_asset', { asset_data: assetData });
+    if (remote) return remote;
+    await new Promise(resolve => setTimeout(resolve, 1200));
+    return mockDb.addAsset(assetData);
+  },
+
+  updateAssetAsync: async (id, assetData) => {
+    const remote = await callOdooAPI('/api/assetflow/update_asset', { id, asset_data: assetData });
+    if (remote) return remote;
+    await new Promise(resolve => setTimeout(resolve, 1200));
+    return mockDb.updateAsset(id, assetData);
+  },
+
+  deleteAssetAsync: async (id) => {
+    const remote = await callOdooAPI('/api/assetflow/dispose', { id }); // map decommission
+    if (remote) return remote;
+    await new Promise(resolve => setTimeout(resolve, 1200));
+    return mockDb.deleteAsset(id);
+  },
+
+  allocateAssetAsync: async (id, user) => {
+    const remote = await callOdooAPI('/api/assetflow/allocate', { id, user });
+    if (remote) return remote;
+    await new Promise(resolve => setTimeout(resolve, 1200));
+    return mockDb.allocateAsset(id, user);
+  },
+
+  returnAssetAsync: async (id) => {
+    const remote = await callOdooAPI('/api/assetflow/return', { id });
+    if (remote) return remote;
+    await new Promise(resolve => setTimeout(resolve, 1200));
+    return mockDb.returnAsset(id);
+  },
+
+  logMaintenanceAsync: async (id, note) => {
+    const remote = await callOdooAPI('/api/assetflow/log_maintenance', { id, note });
+    if (remote) return remote;
+    await new Promise(resolve => setTimeout(resolve, 1200));
+    return mockDb.logMaintenance(id, note);
+  },
+
+  completeMaintenanceAsync: async (id, targetStatus = "Available") => {
+    const remote = await callOdooAPI('/api/assetflow/complete_maintenance', { id, target_status: targetStatus });
+    if (remote) return remote;
+    await new Promise(resolve => setTimeout(resolve, 1200));
+    return mockDb.completeMaintenance(id, targetStatus);
+  },
+
+  transferAssetAsync: async (id, targetUser) => {
+    const remote = await callOdooAPI('/api/assetflow/transfer', { id, target_user: targetUser });
+    if (remote) return remote;
+    await new Promise(resolve => setTimeout(resolve, 1200));
+    return mockDb.transferAsset(id, targetUser);
+  },
+
+  disposeAssetAsync: async (id) => {
+    const remote = await callOdooAPI('/api/assetflow/dispose', { id });
+    if (remote) return remote;
+    await new Promise(resolve => setTimeout(resolve, 1200));
+    return mockDb.disposeAsset(id);
   }
 };

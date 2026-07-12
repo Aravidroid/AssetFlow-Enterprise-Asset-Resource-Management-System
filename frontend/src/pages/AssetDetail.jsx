@@ -48,13 +48,14 @@ export default function AssetDetail() {
   const [transferUser, setTransferUser] = useState('');
 
   const loadAsset = () => {
-    const data = mockDb.getAsset(id);
-    if (!data) {
-      navigate('/assets');
-      return;
-    }
-    setAsset(data);
-    setEditForm(data);
+    mockDb.getAssetAsync(id).then(data => {
+      if (!data) {
+        navigate('/assets');
+        return;
+      }
+      setAsset(data);
+      setEditForm(data);
+    });
   };
 
   useEffect(() => {
@@ -80,60 +81,466 @@ export default function AssetDetail() {
 
   if (!asset) return null;
 
-  // Actions
+  // Actions with Optimistic UI State Updates
   const handleEditSubmit = (e) => {
     e.preventDefault();
-    mockDb.updateAsset(asset.id, editForm);
+    const previousAsset = { ...asset };
+    
+    // Optimistic Update
+    const rawUpdated = {
+      ...asset,
+      name: editForm.name,
+      category: editForm.category,
+      purchaseDate: editForm.purchaseDate,
+      warrantyYears: parseInt(editForm.warrantyYears) || 2,
+      cost: parseFloat(editForm.cost) || 0,
+      description: editForm.description,
+      condition: editForm.condition,
+    };
+    
+    // Simulate dynamic updates
+    const end = new Date("2026-07-12");
+    const start = new Date(rawUpdated.purchaseDate);
+    const age = Math.max(0, end - start) / (1000 * 60 * 60 * 24 * 365.25);
+    const agePenalty = Math.round(age * 2 * 10) / 10;
+    const maintenancePenalty = rawUpdated.maintenanceCount * 5;
+    let conditionPenalty = 0;
+    if (rawUpdated.condition === "Good") conditionPenalty = 5;
+    else if (rawUpdated.condition === "Fair") conditionPenalty = 10;
+    else if (rawUpdated.condition === "Poor") conditionPenalty = 20;
+
+    const purchase = new Date(rawUpdated.purchaseDate);
+    const warrantyEnd = new Date(purchase.setFullYear(purchase.getFullYear() + rawUpdated.warrantyYears));
+    const warrantyDaysLeft = Math.floor((warrantyEnd - end) / (1000 * 60 * 60 * 24));
+    const isWarrantyExpired = warrantyDaysLeft <= 0;
+    let warrantyPenalty = isWarrantyExpired ? 10 : (warrantyDaysLeft <= 30 ? 5 : 0);
+
+    const healthScore = Math.max(0, Math.min(100, Math.round(100 - agePenalty - maintenancePenalty - conditionPenalty - warrantyPenalty)));
+
+    setAsset({
+      ...rawUpdated,
+      age: parseFloat(age.toFixed(2)),
+      healthScore,
+      healthStatus: healthScore >= 70 ? "Healthy" : healthScore >= 40 ? "Warning" : "Critical",
+      healthColor: healthScore >= 70 ? "green" : healthScore >= 40 ? "yellow" : "red",
+      maintenancePriority: healthScore >= 90 ? "Low" : healthScore >= 70 ? "Medium" : healthScore >= 40 ? "High" : "Critical",
+      warrantyDaysLeft: isWarrantyExpired ? 0 : warrantyDaysLeft,
+      isWarrantyExpired,
+      warrantyStatusText: isWarrantyExpired ? "Expired" : `${warrantyDaysLeft} Days Left`,
+      healthBreakdown: {
+        base: 100, age: parseFloat(age.toFixed(2)), agePenalty,
+        maintenanceCount: rawUpdated.maintenanceCount, maintenancePenalty,
+        condition: rawUpdated.condition, conditionPenalty,
+        warrantyDaysLeft: isWarrantyExpired ? 0 : warrantyDaysLeft, warrantyPenalty,
+        rawScore: 100 - agePenalty - maintenancePenalty - conditionPenalty - warrantyPenalty
+      }
+    });
     setIsEditOpen(false);
-    loadAsset();
+
+    mockDb.updateAssetAsync(asset.id, editForm)
+      .then(() => {
+        loadAsset();
+      })
+      .catch((err) => {
+        setAsset(previousAsset);
+        console.error(err);
+      });
   };
 
   const handleAllocate = (e) => {
     e.preventDefault();
     if (!allocUser.trim()) return;
-    mockDb.allocateAsset(asset.id, allocUser);
+
+    const previousAsset = { ...asset };
+
+    // Optimistic Update
+    const rawAsset = {
+      ...asset,
+      status: "Allocated",
+      currentUser: allocUser,
+      history: [...(asset.history || []), { date: "2026-07-12", type: "Allocated", note: `Allocated to ${allocUser} (Optimistic UI).` }]
+    };
+
+    const age = calculateAge(rawAsset.purchaseDate);
+    const agePenalty = Math.round(age * 2 * 10) / 10;
+    const maintenancePenalty = rawAsset.maintenanceCount * 5;
+    let conditionPenalty = 0;
+    if (rawAsset.condition === "Good") conditionPenalty = 5;
+    else if (rawAsset.condition === "Fair") conditionPenalty = 10;
+    else if (rawAsset.condition === "Poor") conditionPenalty = 20;
+
+    const purchase = new Date(rawAsset.purchaseDate);
+    const warrantyEnd = new Date(purchase.setFullYear(purchase.getFullYear() + rawAsset.warrantyYears));
+    const warrantyDaysLeft = Math.floor((warrantyEnd - new Date("2026-07-12")) / (1000 * 60 * 60 * 24));
+    const isWarrantyExpired = warrantyDaysLeft <= 0;
+    let warrantyPenalty = isWarrantyExpired ? 10 : (warrantyDaysLeft <= 30 ? 5 : 0);
+
+    const healthScore = Math.max(0, Math.min(100, Math.round(100 - agePenalty - maintenancePenalty - conditionPenalty - warrantyPenalty)));
+
+    setAsset({
+      ...rawAsset,
+      age: parseFloat(age.toFixed(2)),
+      healthScore,
+      healthStatus: healthScore >= 70 ? "Healthy" : healthScore >= 40 ? "Warning" : "Critical",
+      healthColor: healthScore >= 70 ? "green" : healthScore >= 40 ? "yellow" : "red",
+      maintenancePriority: healthScore >= 90 ? "Low" : healthScore >= 70 ? "Medium" : healthScore >= 40 ? "High" : "Critical",
+      efficiency: 85,
+      efficiencyLevel: "High",
+      isIdle: false,
+      idleDays: 0,
+      recommendation: healthScore < 40 ? "Replace Asset" : (rawAsset.condition === "Poor" ? "Repair Asset" : "Operating Normally"),
+      warrantyDaysLeft: isWarrantyExpired ? 0 : warrantyDaysLeft,
+      isWarrantyExpired,
+      warrantyStatusText: isWarrantyExpired ? "Expired" : `${warrantyDaysLeft} Days Left`,
+      healthBreakdown: {
+        base: 100, age: parseFloat(age.toFixed(2)), agePenalty,
+        maintenanceCount: rawAsset.maintenanceCount, maintenancePenalty,
+        condition: rawAsset.condition, conditionPenalty,
+        warrantyDaysLeft: isWarrantyExpired ? 0 : warrantyDaysLeft, warrantyPenalty,
+        rawScore: 100 - agePenalty - maintenancePenalty - conditionPenalty - warrantyPenalty
+      }
+    });
     setIsAllocateOpen(false);
+
+    mockDb.allocateAssetAsync(asset.id, allocUser)
+      .then(() => {
+        loadAsset();
+      })
+      .catch((err) => {
+        setAsset(previousAsset);
+        console.error(err);
+      });
+
     setAllocUser('');
-    loadAsset();
   };
 
   const handleReturn = () => {
     if (window.confirm("Confirm return of this asset to inventory?")) {
-      mockDb.returnAsset(asset.id);
-      loadAsset();
+      const previousAsset = { ...asset };
+
+      // Optimistic Update
+      const prevUser = asset.currentUser;
+      const rawAsset = {
+        ...asset,
+        status: "Available",
+        currentUser: null,
+        history: [...(asset.history || []), { date: "2026-07-12", type: "Returned", note: `Returned by ${prevUser || "allocated user"}. Cleaned & checked (Optimistic UI).` }]
+      };
+
+      const age = calculateAge(rawAsset.purchaseDate);
+      const agePenalty = Math.round(age * 2 * 10) / 10;
+      const maintenancePenalty = rawAsset.maintenanceCount * 5;
+      let conditionPenalty = 0;
+      if (rawAsset.condition === "Good") conditionPenalty = 5;
+      else if (rawAsset.condition === "Fair") conditionPenalty = 10;
+      else if (rawAsset.condition === "Poor") conditionPenalty = 20;
+
+      const purchase = new Date(rawAsset.purchaseDate);
+      const warrantyEnd = new Date(purchase.setFullYear(purchase.getFullYear() + rawAsset.warrantyYears));
+      const warrantyDaysLeft = Math.floor((warrantyEnd - new Date("2026-07-12")) / (1000 * 60 * 60 * 24));
+      const isWarrantyExpired = warrantyDaysLeft <= 0;
+      let warrantyPenalty = isWarrantyExpired ? 10 : (warrantyDaysLeft <= 30 ? 5 : 0);
+
+      const healthScore = Math.max(0, Math.min(100, Math.round(100 - agePenalty - maintenancePenalty - conditionPenalty - warrantyPenalty)));
+
+      setAsset({
+        ...rawAsset,
+        age: parseFloat(age.toFixed(2)),
+        healthScore,
+        healthStatus: healthScore >= 70 ? "Healthy" : healthScore >= 40 ? "Warning" : "Critical",
+        healthColor: healthScore >= 70 ? "green" : healthScore >= 40 ? "yellow" : "red",
+        maintenancePriority: healthScore >= 90 ? "Low" : healthScore >= 70 ? "Medium" : healthScore >= 40 ? "High" : "Critical",
+        efficiency: 30, // lowered
+        efficiencyLevel: "Moderate",
+        isIdle: true,
+        idleDays: 0,
+        recommendation: "Allocate",
+        warrantyDaysLeft: isWarrantyExpired ? 0 : warrantyDaysLeft,
+        isWarrantyExpired,
+        warrantyStatusText: isWarrantyExpired ? "Expired" : `${warrantyDaysLeft} Days Left`,
+        healthBreakdown: {
+          base: 100, age: parseFloat(age.toFixed(2)), agePenalty,
+          maintenanceCount: rawAsset.maintenanceCount, maintenancePenalty,
+          condition: rawAsset.condition, conditionPenalty,
+          warrantyDaysLeft: isWarrantyExpired ? 0 : warrantyDaysLeft, warrantyPenalty,
+          rawScore: 100 - agePenalty - maintenancePenalty - conditionPenalty - warrantyPenalty
+        }
+      });
+
+      mockDb.returnAssetAsync(asset.id)
+        .then(() => {
+          loadAsset();
+        })
+        .catch((err) => {
+          setAsset(previousAsset);
+          console.error(err);
+        });
     }
   };
 
   const handleMaintenance = (e) => {
     e.preventDefault();
-    mockDb.logMaintenance(asset.id, maintNotes);
+    const previousAsset = { ...asset };
+
+    // Optimistic Update
+    const rawAsset = {
+      ...asset,
+      status: "Under Maintenance",
+      maintenanceCount: asset.maintenanceCount + 1,
+      history: [...(asset.history || []), { date: "2026-07-12", type: "Maintenance", note: maintNotes || "Service request logged (Optimistic UI)." }]
+    };
+
+    const age = calculateAge(rawAsset.purchaseDate);
+    const agePenalty = Math.round(age * 2 * 10) / 10;
+    const maintenancePenalty = rawAsset.maintenanceCount * 5;
+    let conditionPenalty = 0;
+    if (rawAsset.condition === "Good") conditionPenalty = 5;
+    else if (rawAsset.condition === "Fair") conditionPenalty = 10;
+    else if (rawAsset.condition === "Poor") conditionPenalty = 20;
+
+    const purchase = new Date(rawAsset.purchaseDate);
+    const warrantyEnd = new Date(purchase.setFullYear(purchase.getFullYear() + rawAsset.warrantyYears));
+    const warrantyDaysLeft = Math.floor((warrantyEnd - new Date("2026-07-12")) / (1000 * 60 * 60 * 24));
+    const isWarrantyExpired = warrantyDaysLeft <= 0;
+    let warrantyPenalty = isWarrantyExpired ? 10 : (warrantyDaysLeft <= 30 ? 5 : 0);
+
+    const healthScore = Math.max(0, Math.min(100, Math.round(100 - agePenalty - maintenancePenalty - conditionPenalty - warrantyPenalty)));
+
+    setAsset({
+      ...rawAsset,
+      age: parseFloat(age.toFixed(2)),
+      healthScore,
+      healthStatus: healthScore >= 70 ? "Healthy" : healthScore >= 40 ? "Warning" : "Critical",
+      healthColor: healthScore >= 70 ? "green" : healthScore >= 40 ? "yellow" : "red",
+      maintenancePriority: healthScore >= 90 ? "Low" : healthScore >= 70 ? "Medium" : healthScore >= 40 ? "High" : "Critical",
+      efficiency: 0,
+      efficiencyLevel: "Low",
+      recommendation: "Repair Asset",
+      warrantyDaysLeft: isWarrantyExpired ? 0 : warrantyDaysLeft,
+      isWarrantyExpired,
+      warrantyStatusText: isWarrantyExpired ? "Expired" : `${warrantyDaysLeft} Days Left`,
+      healthBreakdown: {
+        base: 100, age: parseFloat(age.toFixed(2)), agePenalty,
+        maintenanceCount: rawAsset.maintenanceCount, maintenancePenalty,
+        condition: rawAsset.condition, conditionPenalty,
+        warrantyDaysLeft: isWarrantyExpired ? 0 : warrantyDaysLeft, warrantyPenalty,
+        rawScore: 100 - agePenalty - maintenancePenalty - conditionPenalty - warrantyPenalty
+      }
+    });
     setIsMaintenanceOpen(false);
+
+    mockDb.logMaintenanceAsync(asset.id, maintNotes)
+      .then(() => {
+        loadAsset();
+      })
+      .catch((err) => {
+        setAsset(previousAsset);
+        console.error(err);
+      });
+
     setMaintNotes('');
-    loadAsset();
   };
 
   const handleCompleteMaintenance = () => {
     if (window.confirm("Complete maintenance and return asset to service?")) {
-      mockDb.completeMaintenance(asset.id, "Available");
-      loadAsset();
+      const previousAsset = { ...asset };
+
+      // Optimistic Update
+      const rawAsset = {
+        ...asset,
+        status: "Available",
+        history: [...(asset.history || []), { date: "2026-07-12", type: "Returned", note: "Maintenance completed. Returned to Available pool (Optimistic UI)." }]
+      };
+
+      const age = calculateAge(rawAsset.purchaseDate);
+      const agePenalty = Math.round(age * 2 * 10) / 10;
+      const maintenancePenalty = rawAsset.maintenanceCount * 5;
+      let conditionPenalty = 0;
+      if (rawAsset.condition === "Good") conditionPenalty = 5;
+      else if (rawAsset.condition === "Fair") conditionPenalty = 10;
+      else if (rawAsset.condition === "Poor") conditionPenalty = 20;
+
+      const purchase = new Date(rawAsset.purchaseDate);
+      const warrantyEnd = new Date(purchase.setFullYear(purchase.getFullYear() + rawAsset.warrantyYears));
+      const warrantyDaysLeft = Math.floor((warrantyEnd - new Date("2026-07-12")) / (1000 * 60 * 60 * 24));
+      const isWarrantyExpired = warrantyDaysLeft <= 0;
+      let warrantyPenalty = isWarrantyExpired ? 10 : (warrantyDaysLeft <= 30 ? 5 : 0);
+
+      const healthScore = Math.max(0, Math.min(100, Math.round(100 - agePenalty - maintenancePenalty - conditionPenalty - warrantyPenalty)));
+
+      setAsset({
+        ...rawAsset,
+        age: parseFloat(age.toFixed(2)),
+        healthScore,
+        healthStatus: healthScore >= 70 ? "Healthy" : healthScore >= 40 ? "Warning" : "Critical",
+        healthColor: healthScore >= 70 ? "green" : healthScore >= 40 ? "yellow" : "red",
+        maintenancePriority: healthScore >= 90 ? "Low" : healthScore >= 70 ? "Medium" : healthScore >= 40 ? "High" : "Critical",
+        efficiency: 30,
+        efficiencyLevel: "Moderate",
+        isIdle: true,
+        idleDays: 0,
+        recommendation: "Allocate",
+        warrantyDaysLeft: isWarrantyExpired ? 0 : warrantyDaysLeft,
+        isWarrantyExpired,
+        warrantyStatusText: isWarrantyExpired ? "Expired" : `${warrantyDaysLeft} Days Left`,
+        healthBreakdown: {
+          base: 100, age: parseFloat(age.toFixed(2)), agePenalty,
+          maintenanceCount: rawAsset.maintenanceCount, maintenancePenalty,
+          condition: rawAsset.condition, conditionPenalty,
+          warrantyDaysLeft: isWarrantyExpired ? 0 : warrantyDaysLeft, warrantyPenalty,
+          rawScore: 100 - agePenalty - maintenancePenalty - conditionPenalty - warrantyPenalty
+        }
+      });
+
+      mockDb.completeMaintenanceAsync(asset.id, "Available")
+        .then(() => {
+          loadAsset();
+        })
+        .catch((err) => {
+          setAsset(previousAsset);
+          console.error(err);
+        });
     }
   };
 
   const handleTransfer = (e) => {
     e.preventDefault();
     if (!transferUser.trim()) return;
-    mockDb.transferAsset(asset.id, transferUser);
+
+    const previousAsset = { ...asset };
+
+    // Optimistic Update
+    const oldUser = asset.currentUser;
+    const rawAsset = {
+      ...asset,
+      status: "Allocated",
+      currentUser: transferUser,
+      history: [...(asset.history || []), { date: "2026-07-12", type: "Transfer", note: `Transferred ownership from ${oldUser || "unassigned"} to ${transferUser} (Optimistic UI).` }]
+    };
+
+    const age = calculateAge(rawAsset.purchaseDate);
+    const agePenalty = Math.round(age * 2 * 10) / 10;
+    const maintenancePenalty = rawAsset.maintenanceCount * 5;
+    let conditionPenalty = 0;
+    if (rawAsset.condition === "Good") conditionPenalty = 5;
+    else if (rawAsset.condition === "Fair") conditionPenalty = 10;
+    else if (rawAsset.condition === "Poor") conditionPenalty = 20;
+
+    const purchase = new Date(rawAsset.purchaseDate);
+    const warrantyEnd = new Date(purchase.setFullYear(purchase.getFullYear() + rawAsset.warrantyYears));
+    const warrantyDaysLeft = Math.floor((warrantyEnd - new Date("2026-07-12")) / (1000 * 60 * 60 * 24));
+    const isWarrantyExpired = warrantyDaysLeft <= 0;
+    let warrantyPenalty = isWarrantyExpired ? 10 : (warrantyDaysLeft <= 30 ? 5 : 0);
+
+    const healthScore = Math.max(0, Math.min(100, Math.round(100 - agePenalty - maintenancePenalty - conditionPenalty - warrantyPenalty)));
+
+    setAsset({
+      ...rawAsset,
+      age: parseFloat(age.toFixed(2)),
+      healthScore,
+      healthStatus: healthScore >= 70 ? "Healthy" : healthScore >= 40 ? "Warning" : "Critical",
+      healthColor: healthScore >= 70 ? "green" : healthScore >= 40 ? "yellow" : "red",
+      maintenancePriority: healthScore >= 90 ? "Low" : healthScore >= 70 ? "Medium" : healthScore >= 40 ? "High" : "Critical",
+      efficiency: 85,
+      efficiencyLevel: "High",
+      isIdle: false,
+      idleDays: 0,
+      recommendation: healthScore < 40 ? "Replace Asset" : (rawAsset.condition === "Poor" ? "Repair Asset" : "Operating Normally"),
+      warrantyDaysLeft: isWarrantyExpired ? 0 : warrantyDaysLeft,
+      isWarrantyExpired,
+      warrantyStatusText: isWarrantyExpired ? "Expired" : `${warrantyDaysLeft} Days Left`,
+      healthBreakdown: {
+        base: 100, age: parseFloat(age.toFixed(2)), agePenalty,
+        maintenanceCount: rawAsset.maintenanceCount, maintenancePenalty,
+        condition: rawAsset.condition, conditionPenalty,
+        warrantyDaysLeft: isWarrantyExpired ? 0 : warrantyDaysLeft, warrantyPenalty,
+        rawScore: 100 - agePenalty - maintenancePenalty - conditionPenalty - warrantyPenalty
+      }
+    });
     setIsTransferOpen(false);
+
+    mockDb.transferAssetAsync(asset.id, transferUser)
+      .then(() => {
+        loadAsset();
+      })
+      .catch((err) => {
+        setAsset(previousAsset);
+        console.error(err);
+      });
+
     setTransferUser('');
-    loadAsset();
   };
 
   const handleDispose = () => {
     if (window.confirm(`Confirm decommissioning and disposal of asset ${asset.id}?`)) {
-      mockDb.disposeAsset(asset.id);
-      loadAsset();
+      const previousAsset = { ...asset };
+
+      // Optimistic Update
+      const rawAsset = {
+        ...asset,
+        status: "Disposed",
+        currentUser: null,
+        history: [...(asset.history || []), { date: "2026-07-12", type: "Disposed", note: "Decommissioned and disposed (Optimistic UI)." }]
+      };
+
+      const age = calculateAge(rawAsset.purchaseDate);
+      const agePenalty = Math.round(age * 2 * 10) / 10;
+      const maintenancePenalty = rawAsset.maintenanceCount * 5;
+      let conditionPenalty = 0;
+      if (rawAsset.condition === "Good") conditionPenalty = 5;
+      else if (rawAsset.condition === "Fair") conditionPenalty = 10;
+      else if (rawAsset.condition === "Poor") conditionPenalty = 20;
+
+      const purchase = new Date(rawAsset.purchaseDate);
+      const warrantyEnd = new Date(purchase.setFullYear(purchase.getFullYear() + rawAsset.warrantyYears));
+      const warrantyDaysLeft = Math.floor((warrantyEnd - new Date("2026-07-12")) / (1000 * 60 * 60 * 24));
+      const isWarrantyExpired = warrantyDaysLeft <= 0;
+      let warrantyPenalty = isWarrantyExpired ? 10 : (warrantyDaysLeft <= 30 ? 5 : 0);
+
+      const healthScore = Math.max(0, Math.min(100, Math.round(100 - agePenalty - maintenancePenalty - conditionPenalty - warrantyPenalty)));
+
+      setAsset({
+        ...rawAsset,
+        age: parseFloat(age.toFixed(2)),
+        healthScore,
+        healthStatus: "Critical",
+        healthColor: "red",
+        maintenancePriority: "Critical",
+        efficiency: 0,
+        efficiencyLevel: "Low",
+        isIdle: false,
+        idleDays: 0,
+        recommendation: "Replace Asset",
+        warrantyDaysLeft: isWarrantyExpired ? 0 : warrantyDaysLeft,
+        isWarrantyExpired,
+        warrantyStatusText: isWarrantyExpired ? "Expired" : `${warrantyDaysLeft} Days Left`,
+        healthBreakdown: {
+          base: 100, age: parseFloat(age.toFixed(2)), agePenalty,
+          maintenanceCount: rawAsset.maintenanceCount, maintenancePenalty,
+          condition: rawAsset.condition, conditionPenalty,
+          warrantyDaysLeft: isWarrantyExpired ? 0 : warrantyDaysLeft, warrantyPenalty,
+          rawScore: 100 - agePenalty - maintenancePenalty - conditionPenalty - warrantyPenalty
+        }
+      });
+
+      mockDb.disposeAssetAsync(asset.id)
+        .then(() => {
+          loadAsset();
+        })
+        .catch((err) => {
+          setAsset(previousAsset);
+          console.error(err);
+        });
     }
   };
+
+  // Inline dynamic calculation helper for optimistic updates
+  function calculateAge(purchaseDate) {
+    const end = new Date("2026-07-12");
+    const start = new Date(purchaseDate);
+    const diffTime = Math.max(0, end - start);
+    return diffTime / (1000 * 60 * 60 * 24 * 365.25);
+  }
 
   const handleDelete = () => {
     if (window.confirm(`Are you absolutely sure you want to delete asset ${asset.id} permanently?`)) {

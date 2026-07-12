@@ -35,18 +35,88 @@ export default function AssetList() {
   });
 
   const loadAssets = () => {
-    setAssets(mockDb.getAssets());
+    mockDb.getAssetsAsync().then(res => setAssets(res));
   };
 
   useEffect(() => {
     loadAssets();
   }, []);
 
-  // Form Submission
+  // Form Submission with Optimistic Updates
   const handleSubmit = (e) => {
     e.preventDefault();
-    mockDb.addAsset(newAsset);
+    
+    // Optimistic Asset Add
+    const tempId = `AF-TEMP-${Math.floor(Math.random() * 1000)}`;
+    const optimisticAsset = {
+      id: tempId,
+      name: newAsset.name || "Unnamed Asset",
+      category: newAsset.category || "IT Hardware",
+      status: "Available",
+      purchaseDate: newAsset.purchaseDate || "2026-07-12",
+      maintenanceCount: 0,
+      lastAllocatedDate: null,
+      currentUser: null,
+      warrantyYears: parseInt(newAsset.warrantyYears) || 2,
+      cost: parseFloat(newAsset.cost) || 0,
+      description: newAsset.description || "",
+      condition: newAsset.condition || "Excellent",
+      history: [{ date: "2026-07-12", type: "Created", note: "Asset registered (Optimistic UI)." }]
+    };
+
+    // Calculate intelligence fields
+    const end = new Date("2026-07-12");
+    const start = new Date(optimisticAsset.purchaseDate);
+    const age = Math.max(0, end - start) / (1000 * 60 * 60 * 24 * 365.25);
+    const agePenalty = Math.round(age * 2 * 10) / 10;
+    let conditionPenalty = 0;
+    if (optimisticAsset.condition === "Good") conditionPenalty = 5;
+    else if (optimisticAsset.condition === "Fair") conditionPenalty = 10;
+    else if (optimisticAsset.condition === "Poor") conditionPenalty = 20;
+
+    const baseHealth = 100 - agePenalty - conditionPenalty;
+    const healthScore = Math.max(0, Math.min(100, Math.round(baseHealth)));
+
+    const computedOptimistic = {
+      ...optimisticAsset,
+      age: parseFloat(age.toFixed(2)),
+      healthScore,
+      healthStatus: healthScore >= 70 ? "Healthy" : healthScore >= 40 ? "Warning" : "Critical",
+      healthColor: healthScore >= 70 ? "green" : healthScore >= 40 ? "yellow" : "red",
+      maintenancePriority: healthScore >= 90 ? "Low" : healthScore >= 70 ? "Medium" : healthScore >= 40 ? "High" : "Critical",
+      efficiency: 0,
+      efficiencyLevel: "Low",
+      idleDays: 0,
+      isIdle: false,
+      recommendation: "Operating Normally",
+      warrantyDaysLeft: 365 * optimisticAsset.warrantyYears,
+      isWarrantyExpired: false,
+      warrantyStatusText: `${365 * optimisticAsset.warrantyYears} Days Left`,
+      isMaintenanceOverdue: false,
+      hasAlerts: false,
+      healthBreakdown: {
+        base: 100, age: parseFloat(age.toFixed(2)), agePenalty,
+        maintenanceCount: 0, maintenancePenalty: 0,
+        condition: optimisticAsset.condition, conditionPenalty,
+        warrantyDaysLeft: 365 * optimisticAsset.warrantyYears, warrantyPenalty: 0,
+        rawScore: baseHealth
+      }
+    };
+
+    const previousAssets = [...assets];
+    setAssets([...assets, computedOptimistic]);
     setIsAddModalOpen(false);
+
+    // Call background async request
+    mockDb.addAssetAsync(newAsset)
+      .then(() => {
+        loadAssets();
+      })
+      .catch((err) => {
+        setAssets(previousAssets);
+        console.error("Register failed, rolling back", err);
+      });
+
     // Reset Form
     setNewAsset({
       name: '',
@@ -57,7 +127,6 @@ export default function AssetList() {
       description: '',
       condition: 'Excellent'
     });
-    loadAssets();
   };
 
   // Get categories for filtering dynamically
