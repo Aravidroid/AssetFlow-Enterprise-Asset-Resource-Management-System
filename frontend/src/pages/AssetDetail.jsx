@@ -29,7 +29,7 @@ import {
   Plus
 } from 'lucide-react';
 
-export default function AssetDetail() {
+export default function AssetDetail({ userRole }) {
   const { id } = useParams();
   const navigate = useNavigate();
   const [asset, setAsset] = useState(null);
