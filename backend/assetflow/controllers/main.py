@@ -341,6 +341,31 @@ class AssetFlowAPI(http.Controller):
             'priorities': top_decisions
         }
 
+    @http.route('/api/assetflow/run_audit', type='json', auth='none', methods=['POST'])
+    def run_audit(self):
+        Asset = request.env['assetflow.asset'].sudo()
+        self._ensure_seed_assets(Asset)
+        records = Asset.search([])
+        assets = [self._compute_asset_intelligence(r) for r in records]
+        
+        total = len(assets)
+        critical = len([a for a in assets if a['healthScore'] < 40])
+        idle = len([a for a in assets if a['isIdle']])
+        maint_overdue = len([a for a in assets if a['isMaintenanceOverdue']])
+        warranty_expired = len([a for a in assets if a['isWarrantyExpired'] or a['warrantyDaysLeft'] <= 30])
+        
+        failed = len([a for a in assets if a['healthScore'] < 40 or a['isMaintenanceOverdue']])
+        compliance_rate = round(((total - failed) / total) * 100) if total > 0 else 100
+        
+        return {
+            'scannedCount': total,
+            'complianceRate': compliance_rate,
+            'criticalAnomalies': critical,
+            'overdueMaint': maint_overdue,
+            'idleDevices': idle,
+            'warrantyIssues': warranty_expired
+        }
+
     @http.route('/api/assetflow/allocate', type='json', auth='none', methods=['POST'])
     def allocate_asset(self, id, user):
         Asset = request.env['assetflow.asset'].sudo()

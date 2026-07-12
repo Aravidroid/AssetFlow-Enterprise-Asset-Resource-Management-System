@@ -656,5 +656,13 @@ export const mockDb = {
     if (remote) return remote;
     await new Promise(resolve => setTimeout(resolve, 1200));
     return mockDb.disposeAsset(id);
+  },
+
+  runAuditAsync: async (localStats) => {
+    const remote = await callOdooAPI('/api/assetflow/run_audit');
+    if (remote) return remote;
+    // Fallback: wait 1.2s to simulate backend audit scan
+    await new Promise(resolve => setTimeout(resolve, 1200));
+    return localStats;
   }
 };

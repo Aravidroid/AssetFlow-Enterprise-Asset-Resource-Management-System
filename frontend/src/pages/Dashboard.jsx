@@ -45,6 +45,8 @@ export default function Dashboard() {
   const [isAllocateOpen, setIsAllocateOpen] = useState(false);
   const [isMaintenanceOpen, setIsMaintenanceOpen] = useState(false);
   const [isAuditOpen, setIsAuditOpen] = useState(false);
+  const [isAuditing, setIsAuditing] = useState(false);
+  const [auditProgress, setAuditProgress] = useState(0);
 
   // Form inputs
   const [newAsset, setNewAsset] = useState({
@@ -551,19 +553,42 @@ export default function Dashboard() {
   };
 
   const handleRunAudit = () => {
-    // Collect stats for compliance
+    setIsAuditOpen(true);
+    setIsAuditing(true);
+    setAuditProgress(0);
+    setAuditReport(null);
+
+    // Compute local stats to pass as fallback parameters
     const failedAssets = assets.filter(a => a.healthScore < 40 || a.isMaintenanceOverdue);
     const complianceRate = totalCount > 0 ? Math.round(((totalCount - failedAssets.length) / totalCount) * 100) : 100;
-    
-    setAuditReport({
+    const localStats = {
       scannedCount: totalCount,
       complianceRate,
       criticalAnomalies: criticalCount,
       overdueMaint: maintenanceDueCount,
       idleDevices: idleCount,
       warrantyIssues: warrantyExpiringCount
-    });
-    setIsAuditOpen(true);
+    };
+
+    // 1. Kick off API call in background
+    const auditPromise = mockDb.runAuditAsync(localStats);
+
+    // 2. Animate progress bar over 2000ms
+    let progress = 0;
+    const interval = setInterval(() => {
+      progress += 10;
+      setAuditProgress(progress);
+      
+      if (progress >= 100) {
+        clearInterval(interval);
+        
+        // Wait for both animation & API completion
+        auditPromise.then(res => {
+          setAuditReport(res);
+          setIsAuditing(false);
+        });
+      }
+    }, 200);
   };
 
   // Get available assets for allocating dropdown
@@ -1263,7 +1288,7 @@ export default function Dashboard() {
       )}
 
       {/* ACTION 4: System Audit Summary Modal */}
-      {isAuditOpen && auditReport && (
+      {isAuditOpen && (
         <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4 z-50 animate-fade-in">
           <div className="glass w-full max-w-md rounded-2xl overflow-hidden border border-slate-800 shadow-2xl">
             <div className="p-5 border-b border-slate-800 flex justify-between items-center bg-slate-900/60">
@@ -1271,42 +1296,64 @@ export default function Dashboard() {
                 <ClipboardList size={18} className="text-emerald-400" />
                 Fleet Audit Results
               </h3>
-              <button onClick={() => setIsAuditOpen(false)} className="text-slate-400 hover:text-white cursor-pointer"><X size={20} /></button>
+              {!isAuditing && (
+                <button onClick={() => setIsAuditOpen(false)} className="text-slate-400 hover:text-white cursor-pointer"><X size={20} /></button>
+              )}
             </div>
-            <div className="p-6 space-y-4">
-              <div className="text-center py-4 bg-slate-950/30 rounded-xl border border-slate-900">
-                <span className="text-xs text-slate-400 block uppercase tracking-wider">Compliance Index Rating</span>
-                <span className="text-4xl font-extrabold text-white block mt-1.5">{auditReport.complianceRate}%</span>
-              </div>
-              <div className="space-y-2.5 text-xs">
-                <div className="flex justify-between py-1 border-b border-slate-900">
-                  <span className="text-slate-500">Fleet Scanned:</span>
-                  <span className="text-white font-mono font-semibold">{auditReport.scannedCount} Assets</span>
+
+            {isAuditing ? (
+              <div className="p-8 text-center space-y-6 flex flex-col items-center justify-center">
+                <div className="p-4 bg-emerald-600/10 rounded-full border border-emerald-500/20 text-emerald-400 animate-spin w-12 h-12 flex items-center justify-center font-bold">
+                  ⚡
                 </div>
-                <div className="flex justify-between py-1 border-b border-slate-900">
-                  <span className="text-slate-500">Critical Anomalies Detected:</span>
-                  <span className={`font-semibold ${auditReport.criticalAnomalies > 0 ? 'text-red-400' : 'text-slate-350'}`}>{auditReport.criticalAnomalies}</span>
-                </div>
-                <div className="flex justify-between py-1 border-b border-slate-900">
-                  <span className="text-slate-500">Service Checks Overdue:</span>
-                  <span className={`font-semibold ${auditReport.overdueMaint > 0 ? 'text-orange-400' : 'text-slate-350'}`}>{auditReport.overdueMaint}</span>
-                </div>
-                <div className="flex justify-between py-1 border-b border-slate-900">
-                  <span className="text-slate-500">Idle Devices (&gt;30d):</span>
-                  <span className="text-white font-semibold">{auditReport.idleDevices}</span>
-                </div>
-                <div className="flex justify-between py-1">
-                  <span className="text-slate-500">Warranties Expired / Expiring:</span>
-                  <span className="text-white font-semibold">{auditReport.warrantyIssues}</span>
+                <div className="space-y-3 w-full">
+                  <span className="text-sm font-bold tracking-wider text-white uppercase block">
+                    Scanning Assets...
+                  </span>
+                  <div className="text-emerald-400 font-mono text-base tracking-widest bg-slate-950/80 p-3.5 rounded-xl border border-slate-900">
+                    {"█".repeat(Math.round((auditProgress / 100) * 12)) + "░".repeat(12 - Math.round((auditProgress / 100) * 12))} {auditProgress}%
+                  </div>
+                  <p className="text-[10px] text-slate-500 italic">
+                    Querying active headless Odoo ERP endpoints...
+                  </p>
                 </div>
               </div>
-              <div className="bg-slate-900/60 p-3.5 rounded-xl border border-slate-850 mt-4 text-xs text-slate-450 leading-relaxed">
-                <strong>Rule-Based Audit Report:</strong> The fleet audit is verified complete. Risk factors are classified. Reallocate idle inventories and run maintenance check-ups.
+            ) : auditReport ? (
+              <div className="p-6 space-y-4">
+                <div className="text-center py-4 bg-slate-950/30 rounded-xl border border-slate-900">
+                  <span className="text-xs text-slate-400 block uppercase tracking-wider">Compliance Index Rating</span>
+                  <span className="text-4xl font-extrabold text-white block mt-1.5">{auditReport.complianceRate}%</span>
+                </div>
+                <div className="space-y-2.5 text-xs">
+                  <div className="flex justify-between py-1 border-b border-slate-900">
+                    <span className="text-slate-500">Fleet Scanned:</span>
+                    <span className="text-white font-mono font-semibold">{auditReport.scannedCount} Assets</span>
+                  </div>
+                  <div className="flex justify-between py-1 border-b border-slate-900">
+                    <span className="text-slate-500">Critical Anomalies Detected:</span>
+                    <span className={`font-semibold ${auditReport.criticalAnomalies > 0 ? 'text-red-400' : 'text-slate-350'}`}>{auditReport.criticalAnomalies} Issues</span>
+                  </div>
+                  <div className="flex justify-between py-1 border-b border-slate-900">
+                    <span className="text-slate-500">Service Checks Overdue:</span>
+                    <span className={`font-semibold ${auditReport.overdueMaint > 0 ? 'text-orange-400' : 'text-slate-350'}`}>{auditReport.overdueMaint} Overdue</span>
+                  </div>
+                  <div className="flex justify-between py-1 border-b border-slate-900">
+                    <span className="text-slate-500">Idle Devices (&gt;30d):</span>
+                    <span className="text-white font-semibold">{auditReport.idleDevices} Idle</span>
+                  </div>
+                  <div className="flex justify-between py-1">
+                    <span className="text-slate-500">Warranties Expired / Expiring:</span>
+                    <span className="text-white font-semibold">{auditReport.warrantyIssues} Issues</span>
+                  </div>
+                </div>
+                <div className="bg-slate-900/60 p-3.5 rounded-xl border border-slate-850 mt-4 text-xs text-slate-450 leading-relaxed">
+                  <strong>Rule-Based Audit Report:</strong> The fleet audit is verified complete. Risk factors are classified. Reallocate idle inventories and run maintenance check-ups.
+                </div>
+                <div className="flex justify-end pt-3 border-t border-slate-800 mt-5">
+                  <button onClick={() => setIsAuditOpen(false)} className="px-5 py-2 text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-500 rounded-xl cursor-pointer">Acknowledge Report</button>
+                </div>
               </div>
-              <div className="flex justify-end pt-3 border-t border-slate-800 mt-5">
-                <button onClick={() => setIsAuditOpen(false)} className="px-5 py-2 text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-500 rounded-xl cursor-pointer">Acknowledge Report</button>
-              </div>
-            </div>
+            ) : null}
           </div>
         </div>
       )}
